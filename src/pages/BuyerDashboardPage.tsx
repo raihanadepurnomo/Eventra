@@ -301,7 +301,7 @@ function TicketCard({ enriched, onCancelResale }: {
               </button>
             </div>
           )}
-          {ticket.status === 'ACTIVE' && !isUsed && (
+          {ticket.status === 'ACTIVE' && !isUsed && event?.isResaleAllowed && (
             <Link to="/dashboard/tickets/$ticketId/sell" params={{ ticketId: ticket.id }}>
               <button
                 className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline transition-colors"

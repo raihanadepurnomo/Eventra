@@ -101,14 +101,15 @@ router.get('/:id/resale-listings', async (req, res) => {
 // POST /api/events — create event
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { id, eo_profile_id, title, description, category, banner_image, location, location_url, start_date, end_date, status } = req.body;
+    const { id, eo_profile_id, title, description, category, banner_image, location, location_url, start_date, end_date, status, is_resale_allowed } = req.body;
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const eventId = id || `evt_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
+    const resaleAllowed = is_resale_allowed ? 1 : 0;
 
     await pool.query(
-      `INSERT INTO events (id, eo_profile_id, title, description, category, banner_image, location, location_url, start_date, end_date, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [eventId, eo_profile_id, title, description, category, banner_image || null, location, location_url || null, start_date, end_date, status || 'DRAFT', now, now]
+      `INSERT INTO events (id, eo_profile_id, title, description, category, banner_image, location, location_url, start_date, end_date, status, is_resale_allowed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [eventId, eo_profile_id, title, description, category, banner_image || null, location, location_url || null, start_date, end_date, status || 'DRAFT', resaleAllowed, now, now]
     );
 
     const [rows] = await pool.query('SELECT * FROM events WHERE id = ?', [eventId]);
@@ -124,12 +125,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const fields = [];
     const values = [];
-    const allowed = ['title', 'description', 'category', 'banner_image', 'location', 'location_url', 'start_date', 'end_date', 'status'];
+    const allowed = ['title', 'description', 'category', 'banner_image', 'location', 'location_url', 'start_date', 'end_date', 'status', 'is_resale_allowed'];
 
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         fields.push(`${key} = ?`);
-        values.push(req.body[key]);
+        let val = req.body[key];
+        if (key === 'is_resale_allowed') val = val ? 1 : 0;
+        values.push(val);
       }
     }
 

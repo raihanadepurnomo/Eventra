@@ -11,6 +11,7 @@ export function mapEvent(e: RawRow): Event {
     location: e.location as string, locationUrl: (e.location_url ?? e.locationUrl) as string | undefined,
     startDate: (e.start_date ?? e.startDate) as string, endDate: (e.end_date ?? e.endDate) as string,
     status: e.status as Event['status'],
+    isResaleAllowed: !!(e.is_resale_allowed ?? e.isResaleAllowed),
     createdAt: (e.created_at ?? e.createdAt) as string, updatedAt: (e.updated_at ?? e.updatedAt) as string,
   }
 }
@@ -18,6 +19,7 @@ export function mapEvent(e: RawRow): Event {
 export function mapUser(u: RawRow): User {
   return {
     id: u.id as string, email: u.email as string, name: u.name as string | undefined,
+    isEmailVerified: u.is_email_verified !== undefined ? Boolean(u.is_email_verified) : (u.isEmailVerified as boolean | undefined),
     image: (u.image ?? u.avatar_url ?? u.avatarUrl) as string | undefined,
     phone: (u.phone ?? u.phone_number) as string | undefined,
     role: u.role as User['role'],

@@ -93,6 +93,7 @@ function mapEvent(e: Record<string, unknown>): Event {
     startDate: (e.start_date ?? e.startDate) as string,
     endDate: (e.end_date ?? e.endDate) as string,
     status: e.status as Event['status'],
+    isResaleAllowed: !!(e.is_resale_allowed ?? e.isResaleAllowed),
     createdAt: (e.created_at ?? e.createdAt) as string,
     updatedAt: (e.updated_at ?? e.updatedAt) as string,
   }

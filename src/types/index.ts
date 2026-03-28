@@ -21,6 +21,7 @@ export type WithdrawalStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'REJECTE
 export interface User {
   id: string
   email: string
+  isEmailVerified?: boolean
   name?: string
   image?: string
   phone?: string
@@ -56,6 +57,7 @@ export interface Event {
   startDate: string
   endDate: string
   status: EventStatus
+  isResaleAllowed?: boolean
   createdAt: string
   updatedAt: string
 }

@@ -1,13 +1,22 @@
 import { Router } from 'express';
 import midtransClient from 'midtrans-client';
 import pool from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireVerifiedEmail } from '../middleware/auth.js';
 import { handleResalePaymentStatus } from './resale.js';
+import {
+  sendOrderExpiredEmail,
+  sendPaymentSuccessEmail,
+  sendPendingPaymentEmail,
+} from '../lib/transactionalEmails.js';
 
 const router = Router();
 
+function mapFailureStatus(transactionStatus) {
+  return transactionStatus === 'expire' ? 'EXPIRED' : 'CANCELLED';
+}
+
 // /api/payments/create
-router.post('/create', authenticateToken, async (req, res) => {
+router.post('/create', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { orderId } = req.body;
     if (!orderId) {
@@ -160,17 +169,25 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
       transaction_status === 'deny' ||
       transaction_status === 'expire'
     ) {
-      newStatus = 'CANCELLED';
+      newStatus = mapFailureStatus(transaction_status);
     } else if (transaction_status === 'pending') {
       newStatus = 'PENDING';
+    }
+
+    if (transaction_status === 'pending' && order.status === 'PENDING' && !order.payment_method) {
+      await pool.query(
+        `UPDATE orders SET payment_method = ? WHERE id = ? AND (payment_method IS NULL OR payment_method = '')`,
+        [statusResponse.payment_type || 'pending', order_id]
+      );
+      await sendPendingPaymentEmail(pool, order_id, statusResponse);
     }
 
     if (newStatus === 'PAID' && order.status !== 'PAID') {
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
       
       const [updateResult] = await pool.query(
-        'UPDATE orders SET status = ?, paid_at = ? WHERE id = ? AND status != ?', 
-        ['PAID', now, order_id, 'PAID']
+        'UPDATE orders SET status = ?, paid_at = ?, payment_method = ? WHERE id = ? AND status != ?', 
+        ['PAID', now, statusResponse.payment_type || order.payment_method || null, order_id, 'PAID']
       );
 
       if (updateResult.affectedRows === 0) {
@@ -191,10 +208,12 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
           [ticketId, order_id, order.user_id, item.ticket_type_id, qrCode, 'ACTIVE', 0, now, item.quantity, attendeeData, item.id]
         );
       }
+
+      await sendPaymentSuccessEmail(pool, order_id, statusResponse.payment_type || order.payment_method || null);
     } else if (newStatus !== order.status) {
       await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newStatus, order_id]);
       
-      if (newStatus === 'CANCELLED' && order.status === 'PENDING') {
+      if ((newStatus === 'CANCELLED' || newStatus === 'EXPIRED') && order.status === 'PENDING') {
         const [items] = await pool.query('SELECT ticket_type_id, quantity FROM order_items WHERE order_id = ?', [order_id]);
         for (const item of items) {
           await pool.query(
@@ -202,6 +221,8 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
             [item.quantity, item.ticket_type_id]
           );
         }
+
+        await sendOrderExpiredEmail(pool, order_id, transaction_status === 'expire' ? 'expired' : 'failed');
       }
     }
 
@@ -241,6 +262,15 @@ router.post('/webhook', async (req, res) => {
     }
     const order = orders[0];
 
+    if (transaction_status === 'pending' && order.status === 'PENDING' && !order.payment_method) {
+      await pool.query(
+        `UPDATE orders SET payment_method = ? WHERE id = ? AND (payment_method IS NULL OR payment_method = '')`,
+        [notification.payment_type || 'pending', order_id]
+      );
+      await sendPendingPaymentEmail(pool, order_id, notification);
+      return res.status(200).json({ status: 'ok' });
+    }
+
     // Evaluate Status
     let newStatus = order.status;
     if (transaction_status === 'capture' || transaction_status === 'settlement') {
@@ -254,7 +284,7 @@ router.post('/webhook', async (req, res) => {
       transaction_status === 'deny' ||
       transaction_status === 'expire'
     ) {
-      newStatus = 'CANCELLED';
+      newStatus = mapFailureStatus(transaction_status);
     } else if (transaction_status === 'pending') {
       newStatus = 'PENDING';
     }
@@ -264,8 +294,8 @@ router.post('/webhook', async (req, res) => {
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
       const [updateResult] = await pool.query(
-        'UPDATE orders SET status = ?, paid_at = ? WHERE id = ? AND status != ?', 
-        ['PAID', now, order_id, 'PAID']
+        'UPDATE orders SET status = ?, paid_at = ?, payment_method = ? WHERE id = ? AND status != ?', 
+        ['PAID', now, notification.payment_type || order.payment_method || null, order_id, 'PAID']
       );
 
       if (updateResult.affectedRows === 0) {
@@ -286,10 +316,12 @@ router.post('/webhook', async (req, res) => {
           [ticketId, order_id, order.user_id, item.ticket_type_id, qrCode, 'ACTIVE', 0, now, item.quantity, attendeeData, item.id]
         );
       }
+
+      await sendPaymentSuccessEmail(pool, order_id, notification.payment_type || order.payment_method || null);
     } else {
       await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newStatus, order_id]);
       
-      if (newStatus === 'CANCELLED' && order.status === 'PENDING') {
+      if ((newStatus === 'CANCELLED' || newStatus === 'EXPIRED') && order.status === 'PENDING') {
         const [items] = await pool.query('SELECT ticket_type_id, quantity FROM order_items WHERE order_id = ?', [order_id]);
         for (const item of items) {
           await pool.query(
@@ -297,6 +329,8 @@ router.post('/webhook', async (req, res) => {
             [item.quantity, item.ticket_type_id]
           );
         }
+
+        await sendOrderExpiredEmail(pool, order_id, transaction_status === 'expire' ? 'expired' : 'failed');
       }
     }
 

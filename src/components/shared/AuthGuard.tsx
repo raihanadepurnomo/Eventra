@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import type { UserRole } from '@/types'
+import { toast } from '@/components/ui/toast'
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -9,17 +10,38 @@ interface AuthGuardProps {
   roles?: UserRole[]
   /** Required EO status (only applies when role is EO) */
   requireActiveEO?: boolean
+  /** If true, EO users must verify email before accessing guarded content. */
+  requireVerifiedEmailForEO?: boolean
 }
 
-export function AuthGuard({ children, roles, requireActiveEO }: AuthGuardProps) {
+export function AuthGuard({ children, roles, requireActiveEO, requireVerifiedEmailForEO }: AuthGuardProps) {
   const { dbUser, isLoading, isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       navigate({ to: '/login' })
+      return
     }
-  }, [isLoading, isAuthenticated, navigate])
+
+    if (
+      !isLoading &&
+      isAuthenticated &&
+      requireVerifiedEmailForEO &&
+      dbUser?.role === 'EO' &&
+      dbUser.isEmailVerified === false
+    ) {
+      toast.error('Verifikasikan email anda terlebih dahulu')
+      const q = new URLSearchParams({
+        email: dbUser.email,
+        type: 'verify_email',
+        from: 'eo-guard',
+      })
+      window.setTimeout(() => {
+        window.location.href = `/verify-otp?${q.toString()}`
+      }, 250)
+    }
+  }, [isLoading, isAuthenticated, navigate, requireVerifiedEmailForEO, dbUser])
 
   if (isLoading) {
     return (
@@ -30,6 +52,14 @@ export function AuthGuard({ children, roles, requireActiveEO }: AuthGuardProps) 
   }
 
   if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    )
+  }
+
+  if (requireVerifiedEmailForEO && dbUser?.role === 'EO' && dbUser.isEmailVerified === false) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />

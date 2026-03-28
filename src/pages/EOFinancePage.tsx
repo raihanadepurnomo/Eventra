@@ -105,6 +105,15 @@ export default function EOFinancePage() {
     e.preventDefault()
     if (!balance) return
 
+    if (!dbUser?.isEmailVerified) {
+      toast.error('Email belum terverifikasi. Verifikasi dulu untuk menarik saldo.')
+      if (dbUser?.email) {
+        const q = new URLSearchParams({ email: dbUser.email, type: 'verify_email', from: 'profile' })
+        window.location.href = `/verify-otp?${q.toString()}`
+      }
+      return
+    }
+
     const numAmount = Number(amount)
     if (numAmount < 50000) return toast.error('Minimal pencairan Rp 50.000')
     if (numAmount > balance.availableBalance) return toast.error('Saldo tidak mencukupi')
@@ -183,6 +192,22 @@ export default function EOFinancePage() {
                   <h3 className="font-bold text-foreground mb-6 flex items-center gap-2">
                     <ArrowUpRight size={18} className="text-accent" /> Ajukan Pencairan
                   </h3>
+                  {dbUser && !dbUser.isEmailVerified && (
+                    <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs">
+                      Email belum terverifikasi.{' '}
+                      <button
+                        type="button"
+                        className="underline font-semibold"
+                        onClick={() => {
+                          const q = new URLSearchParams({ email: dbUser.email, type: 'verify_email', from: 'profile' })
+                          window.location.href = `/verify-otp?${q.toString()}`
+                        }}
+                      >
+                        Verifikasi sekarang
+                      </button>
+                      {' '}untuk melanjutkan pencairan.
+                    </div>
+                  )}
                   <form onSubmit={handleWithdraw} className="space-y-4">
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between ml-1">
@@ -249,7 +274,7 @@ export default function EOFinancePage() {
                     <Button
                       type="submit"
                       className="w-full mt-4 h-11 bg-accent hover:bg-accent/90"
-                      disabled={submitting || !balance || balance.availableBalance < 50000}
+                      disabled={submitting || !balance || balance.availableBalance < 50000 || !dbUser?.isEmailVerified}
                     >
                       {submitting ? 'Memproses...' : 'Cairkan Sekarang'}
                     </Button>

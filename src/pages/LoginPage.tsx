@@ -1,29 +1,64 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Ticket, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import { useAuthContext } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
+import { toast } from '@/components/ui/toast'
 
 export default function LoginPage() {
   const { login, loginWithGoogle } = useAuthContext()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const params = useMemo(() => new URLSearchParams(window.location.search), [])
+  const [email, setEmail] = useState(params.get('email') || '')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [info] = useState(() => {
+    if (params.get('verified') === '1') {
+      return 'Email berhasil diverifikasi. Silakan login dengan email dan password Anda.'
+    }
+    if (params.get('reset') === '1') {
+      return 'Password berhasil diubah. Silakan login dengan password baru Anda.'
+    }
+    return ''
+  })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const user = await login(email, password)
+      const result = await login(email, password)
+
+      if (result.status === 'otp_required') {
+        const q = new URLSearchParams({
+          email: result.email,
+          type: result.otpType,
+          from: 'login',
+        })
+        window.location.href = `/verify-otp?${q.toString()}`
+        return
+      }
+
+      const user = result.user
       if (user.role === 'SUPER_ADMIN') {
         navigate({ to: '/admin/dashboard' })
       } else if (user.role === 'EO') {
+        if (user.isEmailVerified === false) {
+          toast.error('Verifikasikan email anda terlebih dahulu')
+          const q = new URLSearchParams({
+            email: user.email,
+            type: 'verify_email',
+            from: 'login',
+          })
+          window.setTimeout(() => {
+            window.location.href = `/verify-otp?${q.toString()}`
+          }, 250)
+          return
+        }
         navigate({ to: '/eo/dashboard' })
       } else {
         navigate({ to: '/dashboard' })
@@ -75,6 +110,11 @@ export default function LoginPage() {
 
         {/* Email/Password Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {info && (
+            <div className="p-3 rounded-md bg-green-100 text-green-700 text-sm">
+              {info}
+            </div>
+          )}
           {error && (
             <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
               {error}
@@ -127,6 +167,12 @@ export default function LoginPage() {
           >
             {loading ? 'Memproses...' : 'Masuk'}
           </Button>
+
+          <div className="text-right">
+            <Link to="/forgot-password" className="text-sm text-accent hover:underline font-medium">
+              Lupa Password?
+            </Link>
+          </div>
         </form>
 
         <p className="text-center text-sm text-muted-foreground mt-6">

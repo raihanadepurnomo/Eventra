@@ -46,7 +46,7 @@ export default function EOEventDetailPage() {
     setSaving(true)
     try {
       const payloadBanner = bannerFile ? undefined : (event.bannerImage || undefined)
-      await api.put(`/events/${id}`, { title: event.title, description: event.description, category: event.category, bannerImage: payloadBanner, location: event.location, locationUrl: event.locationUrl || undefined, startDate: event.startDate, endDate: event.endDate, updatedAt: new Date().toISOString() })
+      await api.put(`/events/${id}`, { title: event.title, description: event.description, category: event.category, bannerImage: payloadBanner, location: event.location, locationUrl: event.locationUrl || undefined, startDate: event.startDate, endDate: event.endDate, is_resale_allowed: event.isResaleAllowed, updatedAt: new Date().toISOString() })
       
       if (bannerFile) {
         const formData = new FormData()
@@ -168,6 +168,24 @@ export default function EOEventDetailPage() {
               <div className="space-y-1.5"><Label>Tanggal Selesai</Label><Input type="datetime-local" value={event.endDate.slice(0, 16)} onChange={(e) => setEvent((ev) => ev ? { ...ev, endDate: new Date(e.target.value).toISOString() } : ev)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Lokasi</Label><Input value={event.location} onChange={(e) => setEvent((ev) => ev ? { ...ev, location: e.target.value } : ev)} /></div>
+
+            {/* Resale Toggle */}
+            <div className="p-4 bg-muted/30 border border-border rounded-xl space-y-2 mt-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="isResaleAllowed"
+                  className="h-4 w-4 rounded border-gray-300 text-accent focus:ring-accent"
+                  checked={!!event.isResaleAllowed}
+                  onChange={(e) => setEvent((ev) => ev ? { ...ev, isResaleAllowed: e.target.checked } : ev)}
+                />
+                <Label htmlFor="isResaleAllowed" className="font-medium cursor-pointer">Izinkan pembeli menjual kembali tiket (Resale)</Label>
+              </div>
+              <p className="text-xs text-muted-foreground pl-6">
+                Jika diaktifkan, pembeli dapat mendaftarkan tiket mereka di marketplace resale platform ini. 
+                Sistem akan memvalidasi pengaturan ini saat tiket diresale.
+              </p>
+            </div>
           </div>
 
           {/* Ticket types */}

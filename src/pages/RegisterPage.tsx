@@ -27,14 +27,30 @@ export default function RegisterPage() {
       setError('Password dan konfirmasi password tidak sama')
       return
     }
-    if (password.length < 6) {
-      setError('Password minimal 6 karakter')
+    if (password.length < 8) {
+      setError('Password minimal 8 karakter')
+      return
+    }
+    if (!/(?=.*[A-Za-z])(?=.*[0-9])/.test(password)) {
+      setError('Password harus mengandung huruf dan angka')
       return
     }
 
     setLoading(true)
     try {
-      const user = await register(name, email, password, phone, role)
+      const result = await register(name, email, password, phone, role)
+
+      if (result.status === 'otp_required') {
+        const q = new URLSearchParams({
+          email: result.email,
+          type: result.otpType,
+          from: 'register',
+        })
+        window.location.href = `/verify-otp?${q.toString()}`
+        return
+      }
+
+      const user = result.user
       if (user.role === 'SUPER_ADMIN') {
         navigate({ to: '/admin/dashboard' })
       } else if (user.role === 'EO') {
@@ -164,7 +180,7 @@ export default function RegisterPage() {
               <Input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Minimal 6 karakter"
+                placeholder="Minimal 8 karakter (huruf + angka)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-9 pr-9"

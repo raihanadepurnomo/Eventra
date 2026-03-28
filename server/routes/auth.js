@@ -26,8 +26,8 @@ router.post('/register', async (req, res) => {
     if (!email || !password || !phone) {
       return res.status(400).json({ error: 'Email, password, dan nomor HP wajib diisi' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    if (password.length < 8 || !/(?=.*[A-Za-z])(?=.*[0-9])/.test(password)) {
+      return res.status(400).json({ error: 'Password minimal 8 karakter, mengandung huruf dan angka' });
     }
 
     // Check if email exists
@@ -44,14 +44,50 @@ router.post('/register', async (req, res) => {
       : (requestedRole === 'EO' ? 'EO' : 'BUYER');
 
     await pool.query(
-      `INSERT INTO users (id, email, name, role, created_at, updated_at, email_verified, password_hash, phone_verified, phone)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?)`,
+      `INSERT INTO users (id, email, name, role, created_at, updated_at, email_verified, password_hash, phone_verified, phone, auth_provider, is_email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, 'email', FALSE)`,
       [id, email, name || email.split('@')[0], role, now, now, passwordHash, phone]
     );
 
-    const user = { id, email, name: name || email.split('@')[0], role, phone, created_at: now };
-    const token = generateToken(user);
-    res.json({ token, user });
+    // Generate and send OTP
+    const code = Array.from({length: 6}, () => Math.floor(Math.random() * 10)).join('');
+    await pool.query(
+      `INSERT INTO otp_codes (user_id, code, type, expires_at) VALUES (?, ?, 'verify_email', DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
+      [id, code]
+    );
+
+    try {
+      const { sendEmail } = await import('../lib/mailer.js');
+      await sendEmail({
+        to: email,
+        subject: 'Kode Verifikasi Akun Eventra Kamu',
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Halo ${name || email.split('@')[0]},</h2>
+            <p>Selamat datang di Eventra! 🎟️</p>
+            <p>Masukkan kode berikut untuk memverifikasi akun kamu:</p>
+            <div style="background: #f4f4f5; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; text-align: center; margin: 24px 0;">
+              <h1 style="font-size: 32px; letter-spacing: 8px; margin: 0; color: #0f172a;">${code}</h1>
+            </div>
+            <p>Kode berlaku selama 10 menit.</p>
+            <p>Jika kamu tidak merasa mendaftar di Eventra, abaikan email ini.</p>
+            <br/>
+            <p>— Tim Eventra</p>
+          </div>
+        `
+      });
+    } catch (mailErr) {
+      console.error('Failed to send welcome OTP mail', mailErr);
+      return res.status(502).json({
+        error: 'Akun berhasil dibuat, tetapi OTP gagal dikirim. Periksa konfigurasi email Resend (domain/sender), lalu klik Kirim Ulang OTP dari halaman verifikasi.',
+        require_otp: true,
+        email,
+        detail: mailErr?.message || 'Unknown mail error',
+      });
+    }
+
+    // Don't log them in yet, they need to verify
+    res.status(201).json({ message: 'Registrasi berhasil. Silakan cek email untuk OTP.', require_otp: true, email: email });
   } catch (err) {
     console.error('[auth/register]', err);
     res.status(500).json({ error: 'Gagal mendaftar' });
@@ -74,7 +110,7 @@ router.post('/login', async (req, res) => {
 
     const user = rows[0];
 
-    if (!user.password_hash) {
+    if (user.auth_provider === 'google' || !user.password_hash) {
       return res.status(401).json({ error: 'Akun ini terdaftar via Google. Gunakan login Google.' });
     }
 
@@ -82,7 +118,7 @@ router.post('/login', async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: 'Email atau password salah' });
     }
-
+    
     const token = generateToken(user);
     res.json({
       token,
@@ -171,8 +207,8 @@ router.get('/google/callback', async (req, res) => {
       const role = SUPER_ADMIN_EMAIL && userInfo.email === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : 'BUYER';
 
       await pool.query(
-        `INSERT INTO users (id, email, name, image, role, created_at, updated_at, email_verified, phone_verified)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+        `INSERT INTO users (id, email, name, image, role, created_at, updated_at, email_verified, phone_verified, auth_provider, is_email_verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 'google', TRUE)`,
         [id, userInfo.email, userInfo.name, userInfo.picture, role, now, now]
       );
 
@@ -194,7 +230,7 @@ router.get('/google/callback', async (req, res) => {
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT u.id, u.email, u.name, u.image, u.role, u.created_at, u.updated_at, u.display_name, u.avatar_url, u.phone, 
+      `SELECT u.id, u.email, u.name, u.image, u.role, u.created_at, u.updated_at, u.display_name, u.avatar_url, u.phone, u.is_email_verified,
               u.username, u.username_changed_at, u.is_profile_public, s.bio, s.instagram_handle
        FROM users u
        LEFT JOIN seat_social_profiles s ON u.id = s.user_id
