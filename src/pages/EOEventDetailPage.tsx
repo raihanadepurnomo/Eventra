@@ -77,13 +77,13 @@ export default function EOEventDetailPage() {
   }
 
   async function handleAddTicket() {
-    const newTT = await api.post('/ticket-types', { id: crypto.randomUUID(), eventId: id, name: 'Tiket Baru', description: undefined, price: 0, quota: 100, sold: 0, maxPerOrder: 5, saleStartDate: new Date().toISOString(), saleEndDate: new Date(Date.now() + 7 * 86400000).toISOString() })
-    setTicketTypes((prev) => [...prev, newTT as TicketType])
+    const newTT = await api.post('/ticket-types', { id: crypto.randomUUID(), eventId: id, name: 'Tiket Baru', description: undefined, price: 0, quota: 100, sold: 0, maxPerOrder: 5, maxPerAccount: 0, saleStartDate: new Date().toISOString(), saleEndDate: new Date(Date.now() + 7 * 86400000).toISOString() })
+    setTicketTypes((prev) => [...prev, mapTicketType(newTT as any)])
     toast.success('Jenis tiket ditambahkan.')
   }
 
   async function handleSaveTicket(tt: TicketType) {
-    await api.put(`/ticket-types/${tt.id}`, { name: tt.name, description: tt.description || undefined, price: Number(tt.price), quota: Number(tt.quota), maxPerOrder: Number(tt.maxPerOrder), saleStartDate: tt.saleStartDate, saleEndDate: tt.saleEndDate })
+    await api.put(`/ticket-types/${tt.id}`, { name: tt.name, description: tt.description || undefined, price: Number(tt.price), quota: Number(tt.quota), maxPerOrder: Number(tt.maxPerOrder), maxPerAccount: Number(tt.maxPerAccount) || 0, saleStartDate: tt.saleStartDate, saleEndDate: tt.saleEndDate })
     toast.success('Tiket disimpan.')
   }
 
@@ -231,9 +231,23 @@ function TicketEditor({ tt, onChange, onSave, onDelete }: { tt: TicketType; onCh
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <div><Label className="text-xs">Harga</Label><Input type="number" className="h-7 text-xs mt-1" value={tt.price} onChange={(e) => upd('price', e.target.value)} /></div>
+        <div>
+          <Label className="text-xs">Harga</Label>
+          <Input type="number" min="0" className="h-7 text-xs mt-1" value={tt.price} onChange={(e) => upd('price', e.target.value)} />
+          <p className="text-[10px] text-muted-foreground mt-1">0 = tiket gratis</p>
+        </div>
         <div><Label className="text-xs">Kuota</Label><Input type="number" className="h-7 text-xs mt-1" value={tt.quota} onChange={(e) => upd('quota', e.target.value)} /></div>
         <div><Label className="text-xs">Terjual</Label><Input type="number" className="h-7 text-xs mt-1" value={tt.sold} disabled /></div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">Batas per Transaksi</Label>
+          <Input type="number" min="1" className="h-7 text-xs mt-1" value={tt.maxPerOrder} onChange={(e) => upd('maxPerOrder', e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">Batas per Akun</Label>
+          <Input type="number" min="0" className="h-7 text-xs mt-1" value={tt.maxPerAccount} onChange={(e) => upd('maxPerAccount', e.target.value)} />
+        </div>
       </div>
     </div>
   )

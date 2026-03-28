@@ -36,13 +36,13 @@ router.get('/:id', async (req, res) => {
 // POST /api/ticket-types
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { id, event_id, name, description, price, quota, sold, max_per_order, sale_start_date, sale_end_date } = req.body;
+    const { id, event_id, name, description, price, quota, sold, max_per_order, max_per_account, sale_start_date, sale_end_date } = req.body;
     const ttId = id || `tt_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
 
     await pool.query(
-      `INSERT INTO ticket_types (id, event_id, name, description, price, quota, sold, max_per_order, sale_start_date, sale_end_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [ttId, event_id, name, description || null, price || 0, quota || 100, sold || 0, max_per_order || 5, sale_start_date, sale_end_date]
+      `INSERT INTO ticket_types (id, event_id, name, description, price, quota, sold, max_per_order, max_per_account, sale_start_date, sale_end_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ttId, event_id, name, description || null, price ?? 0, quota || 100, sold || 0, max_per_order || 5, max_per_account ?? 0, sale_start_date, sale_end_date]
     );
 
     const [rows] = await pool.query('SELECT * FROM ticket_types WHERE id = ?', [ttId]);
@@ -58,7 +58,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const fields = [];
     const values = [];
-    const allowed = ['name', 'description', 'price', 'quota', 'sold', 'max_per_order', 'sale_start_date', 'sale_end_date'];
+    const allowed = ['name', 'description', 'price', 'quota', 'sold', 'max_per_order', 'max_per_account', 'sale_start_date', 'sale_end_date'];
 
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

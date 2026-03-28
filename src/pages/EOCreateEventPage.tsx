@@ -16,10 +16,10 @@ import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
 
-interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; saleStartDate: string; saleEndDate: string }
+interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; maxPerAccount: string; saleStartDate: string; saleEndDate: string }
 interface EventForm { title: string; category: string; description: string; bannerImage: string; bannerFile: File | null; startDate: string; endDate: string; location: string; locationUrl: string; isResaleAllowed: boolean }
 
-const defaultTicket = (): TicketForm => ({ name: '', description: '', price: '0', quota: '100', maxPerOrder: '5', saleStartDate: '', saleEndDate: '' })
+const defaultTicket = (): TicketForm => ({ name: '', description: '', price: '0', quota: '100', maxPerOrder: '5', maxPerAccount: '0', saleStartDate: '', saleEndDate: '' })
 
 const STEPS = ['Info Dasar', 'Jadwal & Lokasi', 'Jenis Tiket', 'Review & Publish']
 
@@ -78,6 +78,8 @@ export default function EOCreateEventPage() {
       for (const t of tickets) {
         if (!t.name.trim()) { toast.error('Nama tiket wajib diisi'); return false }
         if (Number(t.quota) < 1) { toast.error('Kuota tiket harus lebih dari 0'); return false }
+        if (Number(t.maxPerOrder) < 1) { toast.error('Batas per transaksi minimal 1 tiket'); return false }
+        if (Number(t.maxPerAccount) < 0) { toast.error('Batas per akun tidak boleh negatif'); return false }
         if (!t.saleStartDate || !t.saleEndDate) { toast.error('Tanggal penjualan tiket wajib diisi'); return false }
       }
     }
@@ -119,7 +121,7 @@ export default function EOCreateEventPage() {
         await api.post('/ticket-types', {
           id: crypto.randomUUID(), eventId, name: tt.name.trim(),
           description: tt.description.trim() || undefined, price: Number(tt.price),
-          quota: Number(tt.quota), sold: 0, maxPerOrder: Number(tt.maxPerOrder) || 5,
+          quota: Number(tt.quota), sold: 0, maxPerOrder: Number(tt.maxPerOrder) || 5, maxPerAccount: Number(tt.maxPerAccount) || 0,
           saleStartDate: new Date(tt.saleStartDate).toISOString(),
           saleEndDate: new Date(tt.saleEndDate).toISOString(),
         })
@@ -224,10 +226,25 @@ export default function EOCreateEventPage() {
                   </div>
                   <div className="space-y-1.5"><Label>Nama Tiket *</Label><Input placeholder="Contoh: Regular, VIP" value={tt.name} onChange={(e) => updateTicket(idx, 'name', e.target.value)} /></div>
                   <div className="space-y-1.5"><Label>Deskripsi</Label><Input placeholder="Fasilitas tiket ini..." value={tt.description} onChange={(e) => updateTicket(idx, 'description', e.target.value)} /></div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1.5"><Label>Harga (Rp)</Label><Input type="number" min="0" placeholder="0" value={tt.price} onChange={(e) => updateTicket(idx, 'price', e.target.value)} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Harga (Rp)</Label>
+                      <Input type="number" min="0" placeholder="0" value={tt.price} onChange={(e) => updateTicket(idx, 'price', e.target.value)} />
+                      <p className="text-[11px] text-muted-foreground">Masukkan 0 untuk tiket gratis</p>
+                    </div>
                     <div className="space-y-1.5"><Label>Kuota</Label><Input type="number" min="1" placeholder="100" value={tt.quota} onChange={(e) => updateTicket(idx, 'quota', e.target.value)} /></div>
-                    <div className="space-y-1.5"><Label>Maks/Order</Label><Input type="number" min="1" placeholder="5" value={tt.maxPerOrder} onChange={(e) => updateTicket(idx, 'maxPerOrder', e.target.value)} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Batas per Transaksi</Label>
+                      <Input type="number" min="1" placeholder="5" value={tt.maxPerOrder} onChange={(e) => updateTicket(idx, 'maxPerOrder', e.target.value)} />
+                      <p className="text-[11px] text-muted-foreground">Maksimal tiket dalam satu pembelian</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Batas per Akun</Label>
+                      <Input type="number" min="0" placeholder="0" value={tt.maxPerAccount} onChange={(e) => updateTicket(idx, 'maxPerAccount', e.target.value)} />
+                      <p className="text-[11px] text-muted-foreground">Isi 0 jika tidak ingin membatasi</p>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5"><Label>Mulai Jual *</Label><Input type="datetime-local" value={tt.saleStartDate} onChange={(e) => updateTicket(idx, 'saleStartDate', e.target.value)} /></div>

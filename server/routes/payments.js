@@ -30,6 +30,10 @@ router.post('/create', authenticateToken, requireVerifiedEmail, async (req, res)
     }
     const order = orders[0];
 
+    if (Number(order.total_amount || 0) === 0) {
+      return res.status(400).json({ error: 'Tiket gratis tidak memerlukan pembayaran' });
+    }
+
     // Ensure authorized
     if (order.user_id !== req.user.id && req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'Unauthorized to pay for this order' });

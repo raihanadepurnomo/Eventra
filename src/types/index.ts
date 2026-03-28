@@ -71,6 +71,7 @@ export interface TicketType {
   quota: number
   sold: number
   maxPerOrder: number
+  maxPerAccount: number
   saleStartDate: string
   saleEndDate: string
 }

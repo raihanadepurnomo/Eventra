@@ -80,6 +80,46 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// GET /api/events/:id/my-ticket-count
+router.get('/:id/my-ticket-count', authenticateToken, async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const userId = req.user.id;
+
+    const [ticketTypeRows] = await pool.query(
+      'SELECT id FROM ticket_types WHERE event_id = ?',
+      [eventId]
+    );
+
+    const counts = {};
+    for (const row of ticketTypeRows) {
+      counts[row.id] = 0;
+    }
+
+    const [ownedRows] = await pool.query(
+      `SELECT t.ticket_type_id, COALESCE(SUM(t.quantity), 0) AS total
+       FROM tickets t
+       JOIN orders o ON o.id = t.order_id
+       JOIN ticket_types tt ON tt.id = t.ticket_type_id
+       WHERE tt.event_id = ?
+         AND t.user_id = ?
+         AND o.status = 'PAID'
+         AND t.status NOT IN ('CANCELLED', 'TRANSFERRED')
+       GROUP BY t.ticket_type_id`,
+      [eventId, userId]
+    );
+
+    for (const row of ownedRows) {
+      counts[row.ticket_type_id] = Number(row.total || 0);
+    }
+
+    res.json(counts);
+  } catch (err) {
+    console.error('[events/my-ticket-count]', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/events/:id/resale-listings
 router.get('/:id/resale-listings', async (req, res) => {
   try {
