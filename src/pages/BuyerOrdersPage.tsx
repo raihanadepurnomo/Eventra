@@ -18,7 +18,10 @@ export default function BuyerOrdersPage() {
   useEffect(() => {
     if (!dbUser) return
     api.get(`/orders?user_id=${dbUser.id}`)
-      .then((data) => setOrders(data as Order[]))
+      .then((data) => {
+        const mapped = Array.isArray(data) ? (data as any[]).map(mapOrder) : []
+        setOrders(mapped)
+      })
       .finally(() => setLoading(false))
   }, [dbUser])
 
@@ -49,7 +52,7 @@ export default function BuyerOrdersPage() {
                   </div>
                   <div className="text-right flex flex-col items-end gap-1.5">
                     <StatusBadge status={order.status} />
-                    <p className="text-sm font-bold font-mono text-foreground">{formatIDR(Number(order.totalAmount))}</p>
+                    <p className="text-sm font-bold font-mono text-foreground">{formatIDR(Number(order.totalAmount ?? 0))}</p>
                   </div>
                 </div>
               ))}

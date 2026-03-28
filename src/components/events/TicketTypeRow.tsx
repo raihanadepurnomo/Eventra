@@ -34,9 +34,13 @@ export function TicketTypeRow({ ticketType: tt, quantity, onQuantityChange }: Ti
             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{tt.description}</p>
           )}
           <div className="flex items-center gap-2 mt-1.5">
-            <span className="text-sm font-bold text-foreground font-mono">
-              {tt.price === 0 ? 'GRATIS' : formatIDR(tt.price)}
-            </span>
+            {tt.price === 0 ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200">
+                GRATIS
+              </span>
+            ) : (
+              <span className="text-sm font-bold text-foreground font-mono">{formatIDR(tt.price)}</span>
+            )}
             {soldOut ? (
               <span className="text-xs text-destructive font-medium">Habis Terjual</span>
             ) : !saleActive ? (

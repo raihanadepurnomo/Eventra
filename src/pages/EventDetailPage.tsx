@@ -51,11 +51,34 @@ function isSaleActive(tt: TicketType): boolean {
 
 interface ResaleTicket { listing: ResaleListing; ticketTypeName: string; price: number }
 
-function TicketRow({ tt, qty, onChange }: { tt: TicketType; qty: number; onChange: (id: string, q: number) => void }) {
+function TicketRow({
+  tt,
+  qty,
+  ownedCount,
+  hasOwnershipData,
+  onChange,
+}: {
+  tt: TicketType
+  qty: number
+  ownedCount: number
+  hasOwnershipData: boolean
+  onChange: (id: string, q: number) => void
+}) {
   const remaining = Number(tt.quota) - Number(tt.sold)
   const soldOut = remaining <= 0
   const active = isSaleActive(tt)
-  const disabled = soldOut || !active
+  const maxPerOrder = Number(tt.maxPerOrder || 0)
+  const maxPerAccount = Number(tt.maxPerAccount || 0)
+  const remainingPerAccount = maxPerAccount > 0
+    ? Math.max(0, maxPerAccount - Number(ownedCount || 0))
+    : Number.POSITIVE_INFINITY
+  const reachedAccountLimit = maxPerAccount > 0 && remainingPerAccount <= 0
+  const maxSelectableQty = Math.max(0, Math.min(
+    remaining,
+    maxPerOrder > 0 ? maxPerOrder : Number.POSITIVE_INFINITY,
+    remainingPerAccount
+  ))
+  const disabled = soldOut || !active || reachedAccountLimit
 
   return (
     <div className={`p-3 rounded-lg border ${disabled ? 'opacity-60 bg-muted/30' : 'bg-background'} border-border`}>
@@ -64,20 +87,42 @@ function TicketRow({ tt, qty, onChange }: { tt: TicketType; qty: number; onChang
           <p className="text-sm font-semibold text-foreground">{tt.name}</p>
           {tt.description && <p className="text-xs text-muted-foreground mt-0.5">{tt.description}</p>}
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-sm font-bold font-mono text-foreground">
-              {Number(tt.price) === 0 ? 'GRATIS' : formatIDR(Number(tt.price))}
-            </span>
+            {Number(tt.price) === 0 ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200">
+                GRATIS
+              </span>
+            ) : (
+              <span className="text-sm font-bold font-mono text-foreground">{formatIDR(Number(tt.price))}</span>
+            )}
             {soldOut ? <span className="text-xs text-destructive">Habis</span>
               : !active ? <span className="text-xs text-muted-foreground">Belum tersedia</span>
               : <span className="text-xs text-muted-foreground">{remaining} tersisa</span>}
           </div>
+
+          {maxPerAccount > 0 && hasOwnershipData && (
+            reachedAccountLimit ? (
+              <p className="text-[11px] text-destructive mt-1.5">
+                Kamu sudah mencapai batas pembelian untuk tiket ini (maks. {maxPerAccount} tiket per akun).
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Maks. {maxPerAccount} tiket per akun.
+              </p>
+            )
+          )}
+
+          {maxPerAccount > 0 && !hasOwnershipData && (
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Maks. {maxPerAccount} tiket per akun.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onChange(tt.id, Math.max(0, qty - 1))} disabled={disabled || qty === 0}>
             <Minus className="h-3 w-3" />
           </Button>
           <span className="w-6 text-center text-sm font-semibold tabular-nums">{qty}</span>
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onChange(tt.id, Math.min(Number(tt.maxPerOrder), qty + 1))} disabled={disabled || qty >= remaining || qty >= Number(tt.maxPerOrder)}>
+          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onChange(tt.id, Math.min(maxSelectableQty, qty + 1))} disabled={disabled || qty >= maxSelectableQty}>
             <Plus className="h-3 w-3" />
           </Button>
         </div>
@@ -87,11 +132,11 @@ function TicketRow({ tt, qty, onChange }: { tt: TicketType; qty: number; onChang
 }
 
 function BookingCard({ 
-  ticketTypes, quantities, selectedItems, total, totalQty, buying, isAuthenticated, countdown, onQtyChange, onBuy,
+  ticketTypes, quantities, ownedTicketCounts, hasOwnershipData, selectedItems, total, totalQty, buying, isAuthenticated, countdown, onQtyChange, onBuy,
   step, attendeeForms, onAttendeeChange, onBack,
   buyForSelf, onSelfToggle, currentUser
 }: {
-  ticketTypes: TicketType[]; quantities: Record<string, number>; selectedItems: TicketType[]
+  ticketTypes: TicketType[]; quantities: Record<string, number>; ownedTicketCounts: Record<string, number>; hasOwnershipData: boolean; selectedItems: TicketType[]
   total: number; totalQty: number; buying: boolean; isAuthenticated: boolean
   countdown: string | null; onQtyChange: (id: string, q: number) => void; onBuy: () => void
   step: 'select' | 'details', attendeeForms: Record<string, any[]>, onAttendeeChange: (ttId: string, idx: number, field: string, val: string) => void, onBack: () => void,
@@ -122,7 +167,14 @@ function BookingCard({
           ) : (
             <div className="space-y-2.5 mb-4">
               {ticketTypes.map((tt) => (
-                <TicketRow key={tt.id} tt={tt} qty={quantities[tt.id] ?? 0} onChange={onQtyChange} />
+                <TicketRow
+                  key={tt.id}
+                  tt={tt}
+                  qty={quantities[tt.id] ?? 0}
+                  ownedCount={ownedTicketCounts[tt.id] ?? 0}
+                  hasOwnershipData={hasOwnershipData}
+                  onChange={onQtyChange}
+                />
               ))}
             </div>
           )}
@@ -190,7 +242,7 @@ function BookingCard({
           {selectedItems.map((t) => (
             <div key={t.id} className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t.name} x{quantities[t.id]}</span>
-              <span className="font-mono">{formatIDR(Number(t.price) * (quantities[t.id] ?? 0))}</span>
+              <span className="font-mono">{Number(t.price) === 0 ? 'GRATIS' : formatIDR(Number(t.price) * (quantities[t.id] ?? 0))}</span>
             </div>
           ))}
           <div className="flex items-center justify-between text-sm font-bold text-foreground pt-1 border-t border-border mt-1">
@@ -211,7 +263,15 @@ function BookingCard({
           disabled={buying || (step === 'select' && totalQty === 0)}
           onClick={onBuy}
         >
-          {buying ? 'Memproses...' : !isAuthenticated ? 'Masuk untuk Membeli' : step === 'select' ? 'Lanjut Isi Data' : 'Bayar Sekarang'}
+          {buying
+            ? 'Memproses...'
+            : !isAuthenticated
+              ? 'Masuk untuk Membeli'
+              : step === 'select'
+                ? 'Lanjut Isi Data'
+                : total === 0
+                  ? 'Ambil Tiket Sekarang'
+                  : 'Bayar Sekarang'}
         </Button>
       </div>
       
@@ -239,6 +299,8 @@ export default function EventDetailPage() {
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const [step, setStep] = useState<'select' | 'details'>('select')
   const [attendeeForms, setAttendeeForms] = useState<Record<string, any[]>>({})
+  const [ownedTicketCounts, setOwnedTicketCounts] = useState<Record<string, number>>({})
+  const [hasOwnershipData, setHasOwnershipData] = useState(false)
   const [buyForSelf, setBuyForSelf] = useState(true)
   const [buyingResale, setBuyingResale] = useState<string | null>(null)
   
@@ -310,6 +372,36 @@ export default function EventDetailPage() {
     load()
   }, [id, navigate])
 
+  useEffect(() => {
+    if (!isAuthenticated || !dbUser) {
+      setOwnedTicketCounts({})
+      setHasOwnershipData(false)
+      return
+    }
+
+    let cancelled = false
+    async function loadOwnedTicketCounts() {
+      try {
+        const raw = await api.get<Record<string, number>>(`/events/${id}/my-ticket-count`)
+        if (cancelled) return
+        const normalized: Record<string, number> = {}
+        Object.entries(raw || {}).forEach(([ticketTypeId, count]) => {
+          normalized[ticketTypeId] = Number(count || 0)
+        })
+        setOwnedTicketCounts(normalized)
+        setHasOwnershipData(true)
+      } catch (err) {
+        if (cancelled) return
+        console.warn('Failed to load owned ticket counts:', err)
+        setOwnedTicketCounts({})
+        setHasOwnershipData(false)
+      }
+    }
+
+    loadOwnedTicketCounts()
+    return () => { cancelled = true }
+  }, [dbUser, id, isAuthenticated])
+
   // Countdown timer for pending order
   useEffect(() => {
     if (!pendingOrderId) { setCountdown(null); return }
@@ -327,16 +419,54 @@ export default function EventDetailPage() {
     return () => clearInterval(interval)
   }, [pendingOrderId])
 
+  function getMaxSelectable(tt: TicketType) {
+    const remainingQuota = Number(tt.quota) - Number(tt.sold)
+    const perOrderLimit = Number(tt.maxPerOrder || 0)
+    const perAccountLimit = Number(tt.maxPerAccount || 0)
+    const ownedCount = Number(ownedTicketCounts[tt.id] || 0)
+    const remainingPerAccount = perAccountLimit > 0
+      ? Math.max(0, perAccountLimit - ownedCount)
+      : Number.POSITIVE_INFINITY
+
+    return Math.max(0, Math.min(
+      remainingQuota,
+      perOrderLimit > 0 ? perOrderLimit : Number.POSITIVE_INFINITY,
+      remainingPerAccount
+    ))
+  }
+
+  useEffect(() => {
+    setQuantities((prev) => {
+      const next = { ...prev }
+      let changed = false
+
+      for (const tt of ticketTypes) {
+        const maxSelectable = getMaxSelectable(tt)
+        const current = next[tt.id] ?? 0
+        if (current > maxSelectable) {
+          next[tt.id] = maxSelectable
+          changed = true
+        }
+      }
+
+      return changed ? next : prev
+    })
+  }, [ticketTypes, ownedTicketCounts])
+
   function handleQtyChange(ticketTypeId: string, qty: number) {
-    setQuantities((prev) => ({ ...prev, [ticketTypeId]: qty }))
+    const ticketType = ticketTypes.find((tt) => tt.id === ticketTypeId)
+    const maxSelectable = ticketType ? getMaxSelectable(ticketType) : qty
+    const safeQty = Math.max(0, Math.min(qty, maxSelectable))
+
+    setQuantities((prev) => ({ ...prev, [ticketTypeId]: safeQty }))
     // Initialize forms for this ticket type
     setAttendeeForms(prev => {
       const current = prev[ticketTypeId] || []
       const next = [...current]
-      if (qty > next.length) {
-        for (let i = next.length; i < qty; i++) next.push({ name: '', email: '', phone: '' })
+      if (safeQty > next.length) {
+        for (let i = next.length; i < safeQty; i++) next.push({ name: '', email: '', phone: '' })
       } else {
-        next.splice(qty)
+        next.splice(safeQty)
       }
       return { ...prev, [ticketTypeId]: next }
     })
@@ -428,10 +558,11 @@ export default function EventDetailPage() {
       const now = new Date().toISOString()
       const expiredAt = new Date(Date.now() + 15 * 60 * 1000).toISOString()
 
-      // 1. Create order and order items
-      await api.post('/orders', {
+      const orderRes: any = await api.post('/orders', {
         id: orderId, userId: dbUser.id, totalAmount: total,
-        status: 'PENDING', expiredAt, createdAt: now,
+        status: total === 0 ? 'PAID' : 'PENDING',
+        expiredAt: total === 0 ? undefined : expiredAt,
+        createdAt: now,
         items: selectedItems.map(tt => {
           const qty = quantities[tt.id] ?? 0;
           return {
@@ -449,9 +580,16 @@ export default function EventDetailPage() {
         }),
       })
 
+      const isFreeOrder = Boolean(orderRes?.is_free ?? orderRes?.isFree)
+      if (isFreeOrder) {
+        toast.success('Tiket gratis berhasil diambil!')
+        navigate({ to: '/dashboard' })
+        return
+      }
+
       setPendingOrderId(orderId)
 
-      // 3. Get Midtrans snap token — if no client key, fall back to auto-PAID (dev mode)
+      // Get Midtrans snap token — if no client key, fall back to auto-PAID (dev mode)
       if (!MIDTRANS_CLIENT_KEY || !window.snap) {
         // Dev fallback: auto-complete without Midtrans
         await api.put(`/orders/${orderId}`, { status: 'PAID', paidAt: now })
@@ -711,7 +849,7 @@ export default function EventDetailPage() {
               {/* Mobile booking card */}
               <div className="lg:hidden">
                 <BookingCard
-                  ticketTypes={ticketTypes} quantities={quantities} selectedItems={selectedItems}
+                  ticketTypes={ticketTypes} quantities={quantities} ownedTicketCounts={ownedTicketCounts} hasOwnershipData={hasOwnershipData} selectedItems={selectedItems}
                   total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}
@@ -725,7 +863,7 @@ export default function EventDetailPage() {
             <div className="hidden lg:block">
               <div className="sticky top-20">
                 <BookingCard
-                  ticketTypes={ticketTypes} quantities={quantities} selectedItems={selectedItems}
+                  ticketTypes={ticketTypes} quantities={quantities} ownedTicketCounts={ownedTicketCounts} hasOwnershipData={hasOwnershipData} selectedItems={selectedItems}
                   total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}

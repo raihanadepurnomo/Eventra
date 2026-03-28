@@ -359,10 +359,11 @@ CREATE TABLE `ticket_types` (
   `event_id` varchar(255) DEFAULT NULL,
   `name` text DEFAULT NULL,
   `description` text DEFAULT NULL,
-  `price` int(11) DEFAULT NULL,
+  `price` int(11) NOT NULL DEFAULT 0,
   `quota` int(11) DEFAULT NULL,
   `sold` int(11) DEFAULT NULL,
   `max_per_order` int(11) DEFAULT NULL,
+  `max_per_account` int(11) NOT NULL DEFAULT 0,
   `sale_start_date` text DEFAULT NULL,
   `sale_end_date` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -371,8 +372,8 @@ CREATE TABLE `ticket_types` (
 -- Dumping data for table `ticket_types`
 --
 
-INSERT INTO `ticket_types` (`id`, `event_id`, `name`, `description`, `price`, `quota`, `sold`, `max_per_order`, `sale_start_date`, `sale_end_date`) VALUES
-('c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', '2b15839b-52a6-4aac-849a-e501caf38e78', 'VIP', 'Makan', 50000, 100, 2, 3, '2026-03-28T07:27:00.000Z', '2026-04-01T07:27:00.000Z');
+INSERT INTO `ticket_types` (`id`, `event_id`, `name`, `description`, `price`, `quota`, `sold`, `max_per_order`, `max_per_account`, `sale_start_date`, `sale_end_date`) VALUES
+('c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', '2b15839b-52a6-4aac-849a-e501caf38e78', 'VIP', 'Makan', 50000, 100, 2, 3, 0, '2026-03-28T07:27:00.000Z', '2026-04-01T07:27:00.000Z');
 
 -- --------------------------------------------------------
 

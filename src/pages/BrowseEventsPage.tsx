@@ -60,7 +60,13 @@ function EventCard({ event, minPrice }: { event: Event; minPrice: number | null 
         {minPrice !== null && (
           <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Mulai dari</span>
-            <span className="text-sm font-bold font-mono text-foreground">{minPrice === 0 ? 'GRATIS' : formatIDR(minPrice)}</span>
+            {minPrice === 0 ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+                GRATIS
+              </span>
+            ) : (
+              <span className="text-sm font-bold font-mono text-foreground">{formatIDR(minPrice)}</span>
+            )}
           </div>
         )}
       </div>

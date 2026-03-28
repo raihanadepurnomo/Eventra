@@ -39,6 +39,7 @@ export function mapTicketType(t: RawRow): TicketType {
     name: t.name as string, description: t.description as string | undefined,
     price: Number(t.price), quota: Number(t.quota), sold: Number(t.sold),
     maxPerOrder: Number(t.max_per_order ?? t.maxPerOrder ?? 5),
+    maxPerAccount: Number(t.max_per_account ?? t.maxPerAccount ?? 0),
     saleStartDate: (t.sale_start_date ?? t.saleStartDate) as string,
     saleEndDate: (t.sale_end_date ?? t.saleEndDate) as string,
   }
