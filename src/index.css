@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Eventra Theme CSS Variables
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* ── App palette ──────────────────────────────────────────────────────────── */
+:root {
+  /* Eventra design system palette */
+
+  /*
+   * EXAMPLE PALETTES (use as inspiration, replace with your own):
+   *
+   * Modern SaaS (Business/Enterprise):
+   * --primary: 220 10% 20%;        (Charcoal #2D3748)
+   * --accent: 220 10% 30%;         (Lighter charcoal #4A5568)
+   *
+   * Bold Tech (Startups/Developer Tools):
+   * --primary: 348 83% 47%;        (Crimson #DA1E37)
+   * --accent: 348 83% 57%;         (Lighter crimson #F0213E)
+   *
+   * Quantum Rose (Creative/Design):
+   * --primary: 330 81% 50%;        (Pink #E6067A)
+   * --accent: 330 81% 70%;         (Lighter pink #F472B6)
+   *
+   * Rich Forest (Calm/Professional):
+   * --primary: 151 55% 25%;        (Pine #1C6340)
+   * --accent: 151 55% 35%;         (Lighter pine #288C5A)
+   *
+   * Sunset Warmth (Friendly/Welcoming):
+   * --primary: 24 95% 53%;         (Orange #F97316)
+   * --accent: 24 95% 63%;          (Lighter orange #FB923C)
+   */
+
+  /* Colors — Eventra palette */
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 222 47% 11%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 239 84% 67%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 239 84% 67%;
+
+  /* Charts */
+  --chart-1: 239 84% 67%;
+  --chart-2: 24 95% 53%;
+  --chart-3: 47 96% 53%;
+  --chart-4: 151 55% 35%;
+  --chart-5: 262 52% 47%;
+
+  /* Sidebar */
+  --sidebar: 222 47% 9%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 239 84% 67%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 222 47% 14%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 222 47% 17%;
+  --sidebar-ring: 239 84% 67%;
+
+  /* Fonts */
+  --font-sans: 'Inter', -apple-system, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Shadows */
+  --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+  --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+  --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
+  --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
+  --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
+  --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+
+  /* Misc */
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+  --radius: 0.5rem;
+}
+
+:root.dark,
+.dark {
+  /* Eventra dark mode palette */
+  --background: 222 47% 8%;
+  --foreground: 210 40% 96%;
+  --card: 222 47% 11%;
+  --card-foreground: 210 40% 96%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 210 40% 96%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 222 47% 16%;
+  --secondary-foreground: 210 40% 80%;
+  --muted: 222 47% 14%;
+  --muted-foreground: 215 16% 55%;
+  --accent: 239 84% 67%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 222 47% 18%;
+  --input: 222 47% 18%;
+  --ring: 239 84% 67%;
+
+  /* Dark mode charts */
+  --chart-1: 239 84% 72%;
+  --chart-2: 24 95% 63%;
+  --chart-3: 47 96% 65%;
+  --chart-4: 151 55% 55%;
+  --chart-5: 262 52% 65%;
+
+  /* Dark mode sidebar */
+  --sidebar: 222 47% 7%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 239 84% 67%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 222 47% 14%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 222 47% 17%;
+  --sidebar-ring: 239 84% 67%;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

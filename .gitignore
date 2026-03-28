@@ -1,0 +1,61 @@
+# ─── Environment ────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Node / npm ─────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp
+.pnp.js
+
+# ─── Build Output ────────────────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+
+# ─── Vite ───────────────────────────────────────────────────────────────────────
+*.local
+
+# ─── Editor / IDE ────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ─── OS Files ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ───────────────────────────────────────────────────────────────────────
+logs/
+*.log
+build-errors.txt
+tsc-errors.txt
+
+# ─── Debug / Temp Files ─────────────────────────────────────────────────────────
+table_info.json
+*.tmp
+*.temp
+
+# ─── TypeScript ─────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ─── Testing ────────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Uploads (user-uploaded files) ──────────────────────────────────────────────
+server/uploads/
+public/uploads/
+
+# ─── Package lock (pilih salah satu sesuai package manager yang digunakan) ──────
+# Hapus baris di bawah ini jika Anda INGIN commit package-lock.json
+# package-lock.json

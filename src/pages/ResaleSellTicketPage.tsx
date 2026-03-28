@@ -1,0 +1,264 @@
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate, Link } from '@tanstack/react-router'
+import { ArrowLeft, Info, HelpCircle, CheckCircle2 } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Textarea } from '@/components/ui/Textarea'
+import { toast } from '@/components/ui/toast'
+import { Navbar } from '@/components/layout/Navbar'
+import { Footer } from '@/components/layout/Footer'
+import { api } from '@/lib/api'
+import { mapTicket, mapTicketType, mapEvent } from '@/lib/mappers'
+import { formatDate, formatIDR } from '@/lib/utils'
+import type { Ticket, TicketType, Event } from '@/types'
+
+export default function ResaleSellTicketPage() {
+  const { ticketId } = useParams({ from: '/dashboard/tickets/$ticketId/sell' })
+  const navigate = useNavigate()
+  
+  const [ticket, setTicket] = useState<Ticket | null>(null)
+  const [ticketType, setTicketType] = useState<TicketType | null>(null)
+  const [event, setEvent] = useState<Event | null>(null)
+  const [loading, setLoading] = useState(true)
+  
+  const [askingPrice, setAskingPrice] = useState<number>(0)
+  const [note, setNote] = useState('')
+  const [agree, setAgree] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    loadData()
+  }, [ticketId])
+
+  async function loadData() {
+    setLoading(true)
+    try {
+      const rawTicket: any = await api.get(`/tickets/${ticketId}`)
+      const t = mapTicket(rawTicket)
+      setTicket(t)
+
+      const rawTT: any = await api.get(`/ticket-types/${t.ticketTypeId}`)
+      const tt = mapTicketType(rawTT)
+      setTicketType(tt)
+      setAskingPrice(tt.price) // Default to original price
+
+      const rawEv: any = await api.get(`/events/${tt.eventId}`)
+      setEvent(mapEvent(rawEv))
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal memuat data tiket')
+      navigate({ to: '/dashboard' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const originalPrice = ticketType?.price || 0
+  const maxAllowedPrice = Math.round(originalPrice * 1.2)
+  const minAllowedPrice = Math.round(originalPrice * 0.5)
+  const platformFee = Math.round(askingPrice * 0.05)
+  const sellerReceives = askingPrice - platformFee
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!agree) {
+      toast.error('Anda harus menyetujui syarat & ketentuan')
+      return
+    }
+    if (askingPrice > maxAllowedPrice) {
+      toast.error(`Harga maksimal adalah ${formatIDR(maxAllowedPrice)}`)
+      return
+    }
+    if (askingPrice < minAllowedPrice) {
+      toast.error(`Harga minimal adalah ${formatIDR(minAllowedPrice)}`)
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await api.post('/resale/listings', {
+        ticketId,
+        askingPrice,
+        note
+      })
+      toast.success('Tiket berhasil didaftarkan untuk dijual!')
+      navigate({ to: '/dashboard/resale' })
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal mendaftarkan tiket')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <Navbar />
+      <main className="flex-1 pt-20 pb-12">
+        <div className="max-w-xl mx-auto px-4">
+          <Link 
+            to="/dashboard" 
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          >
+            <ArrowLeft size={16} /> Kembali ke Dashboard
+          </Link>
+
+          <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-border bg-muted/30">
+              <h1 className="text-xl font-bold text-foreground">Jual Tiket Resmi</h1>
+              <p className="text-sm text-muted-foreground mt-1">Daftarkan tiketmu untuk dibeli peserta lain dengan aman.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-8">
+              {/* Ticket Info Section */}
+              <section className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground uppercase tracking-wider">
+                  <div className="w-1.5 h-4 bg-accent rounded-full" />
+                  Info Tiket
+                </div>
+                <div className="p-4 rounded-xl bg-muted/20 border border-border/50 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Event</span>
+                    <span className="font-semibold text-foreground text-right">{event?.title}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Jenis Tiket</span>
+                    <span className="text-foreground">{ticketType?.name}</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-2 border-t border-border/50 mt-2">
+                    <span className="text-muted-foreground">Harga Asli</span>
+                    <span className="font-mono font-bold text-foreground">{formatIDR(originalPrice)}</span>
+                  </div>
+                </div>
+              </section>
+
+              {/* Pricing Section */}
+              <section className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground uppercase tracking-wider">
+                  <div className="w-1.5 h-4 bg-accent rounded-full" />
+                  Harga Jual
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="askingPrice">Harga Jual (Rp)</Label>
+                    <div className="relative">
+                      <Input
+                        id="askingPrice"
+                        type="number"
+                        className="pl-12 h-12 text-lg font-mono font-bold"
+                        value={askingPrice}
+                        onChange={(e) => setAskingPrice(Number(e.target.value))}
+                        required
+                      />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">Rp</span>
+                    </div>
+                    <div className="flex items-start gap-2 p-3 bg-blue-50/50 border border-blue-100 rounded-lg">
+                      <Info size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-blue-700 leading-normal">
+                        Maksimal <strong>{formatIDR(maxAllowedPrice)}</strong> (Harga asli + 20%). 
+                        Kebijakan ini untuk mencegah penimbunan tiket (scalping).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-muted/30 rounded-xl p-4 space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Harga Jual</span>
+                      <span className="font-mono text-foreground">{formatIDR(askingPrice)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        Fee Platform (5%) <HelpCircle size={12} className="text-muted-foreground/50" />
+                      </span>
+                      <span className="font-mono text-destructive">-{formatIDR(platformFee)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-border flex justify-between items-center">
+                      <span className="font-bold text-foreground italic">Yang kamu terima</span>
+                      <span className="text-lg font-mono font-bold text-accent">{formatIDR(sellerReceives)}</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Note Section */}
+              <section className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground uppercase tracking-wider">
+                  <div className="w-1.5 h-4 bg-accent rounded-full" />
+                  Catatan (Opsional)
+                </div>
+                <div className="space-y-2">
+                  <Textarea 
+                    placeholder="Contoh: Jual karena ada acara mendadak, tidak bisa hadir..."
+                    className="resize-none h-24"
+                    maxLength={200}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                  <div className="text-[10px] text-right text-muted-foreground">{note.length}/200 karakter</div>
+                </div>
+              </section>
+
+              {/* Agreement Section */}
+              <section className="pt-4 border-t border-border space-y-4">
+                <label className="flex gap-3 cursor-pointer group">
+                  <input 
+                    type="checkbox" 
+                    className="mt-1 w-4 h-4 rounded border-border text-accent focus:ring-accent"
+                    checked={agree}
+                    onChange={(e) => setAgree(e.target.checked)}
+                  />
+                  <div className="text-xs text-muted-foreground group-hover:text-foreground transition-colors leading-relaxed">
+                    Saya menyetujui bahwa tiket ini akan <strong>dinonaktifkan</strong> segera setelah terjual, 
+                    dan saya akan menerima saldo sebesar rincian di atas di dompet Eventra saya. 
+                    Listing ini akan aktif sampai penjualan tiket berakhir pada <strong>{ticketType ? formatDate(ticketType.saleEndDate) : '...'}</strong>.
+                  </div>
+                </label>
+
+                <div className="flex gap-3">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    className="flex-1 hover:bg-muted hover:text-foreground border-border"
+                    onClick={() => navigate({ to: '/dashboard' })}
+                    disabled={submitting}
+                  >
+                    Batalkan
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    className="flex-[2] bg-accent text-accent-foreground hover:bg-accent/90 h-11 font-bold shadow-lg shadow-accent/20"
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Memproses...' : 'Daftarkan Tiket'}
+                  </Button>
+                </div>
+              </section>
+            </form>
+          </div>
+          
+          <div className="mt-8 flex items-center justify-center gap-8 opacity-40 grayscale">
+             <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Verified Ticket</span>
+             </div>
+             <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Secure Payment</span>
+             </div>
+          </div>
+        </div>
+      </main>
+      <Footer />
+    </div>
+  )
+}
