@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Calendar,
   Plus,
+  TicketPercent,
   Users,
   Receipt,
   Ticket,
@@ -25,6 +26,7 @@ interface NavItem {
 const eoNav: NavItem[] = [
   { label: 'Beranda',    href: '/eo/dashboard',     icon: LayoutDashboard },
   { label: 'Event Saya', href: '/eo/events',        icon: Calendar },
+  { label: 'Promo',      href: '/eo/promos',        icon: TicketPercent },
   { label: 'Buat Event', href: '/eo/events/create', icon: Plus },
   { label: 'Peserta',     href: '/eo/attendees',     icon: Users },
   { label: 'Scan Tiket',  href: '/eo/scanner',        icon: QrCode },
@@ -43,12 +45,18 @@ const adminNav: NavItem[] = [
 ]
 
 function SidebarLink({ item }: { item: NavItem }) {
+  const path = window.location.pathname
   const isDashboard = item.href === '/eo/dashboard' || item.href === '/admin/dashboard'
-  let isActive = window.location.pathname === item.href
+  const isPromoDetail = /^\/eo\/events\/[^/]+\/promos$/.test(path)
+  let isActive = path === item.href
 
-  if (!isDashboard && !isActive && window.location.pathname.startsWith(item.href)) {
+  if (item.href === '/eo/promos' && isPromoDetail) {
+    isActive = true
+  }
+
+  if (!isDashboard && !isActive && path.startsWith(item.href)) {
     // Special case: don't highlight "Event Saya" (/eo/events) when on "Buat Event" (/eo/events/create)
-    if (item.href === '/eo/events' && window.location.pathname === '/eo/events/create') {
+    if (item.href === '/eo/events' && (path === '/eo/events/create' || isPromoDetail)) {
       isActive = false
     } else {
       isActive = true

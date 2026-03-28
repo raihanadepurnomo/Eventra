@@ -16,10 +16,23 @@ import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
 
-interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; maxPerAccount: string; saleStartDate: string; saleEndDate: string }
+interface PricingPhaseForm { phaseName: string; price: string; quota: string; startDate: string; endDate: string }
+interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; maxPerAccount: string; saleStartDate: string; saleEndDate: string; pricingEnabled: boolean; phases: PricingPhaseForm[] }
 interface EventForm { title: string; category: string; description: string; bannerImage: string; bannerFile: File | null; startDate: string; endDate: string; location: string; locationUrl: string; isResaleAllowed: boolean }
 
-const defaultTicket = (): TicketForm => ({ name: '', description: '', price: '0', quota: '100', maxPerOrder: '5', maxPerAccount: '0', saleStartDate: '', saleEndDate: '' })
+const defaultPhase = (phaseName = 'Early Bird'): PricingPhaseForm => ({ phaseName, price: '0', quota: '', startDate: '', endDate: '' })
+const defaultTicket = (): TicketForm => ({
+  name: '',
+  description: '',
+  price: '0',
+  quota: '100',
+  maxPerOrder: '5',
+  maxPerAccount: '0',
+  saleStartDate: '',
+  saleEndDate: '',
+  pricingEnabled: false,
+  phases: [defaultPhase('Early Bird')],
+})
 
 const STEPS = ['Info Dasar', 'Jadwal & Lokasi', 'Jenis Tiket', 'Review & Publish']
 
@@ -57,6 +70,29 @@ export default function EOCreateEventPage() {
     setTickets((prev) => prev.map((t, i) => i === idx ? { ...t, [field]: val } : t))
   }
 
+  function updateTicketPhase(ticketIdx: number, phaseIdx: number, field: keyof PricingPhaseForm, value: string) {
+    setTickets((prev) => prev.map((ticket, i) => {
+      if (i !== ticketIdx) return ticket
+      const phases = ticket.phases.map((phase, pIdx) => pIdx === phaseIdx ? { ...phase, [field]: value } : phase)
+      return { ...ticket, phases }
+    }))
+  }
+
+  function addPricingPhase(ticketIdx: number) {
+    setTickets((prev) => prev.map((ticket, i) => {
+      if (i !== ticketIdx) return ticket
+      return { ...ticket, phases: [...ticket.phases, defaultPhase(`Fase ${ticket.phases.length + 1}`)] }
+    }))
+  }
+
+  function removePricingPhase(ticketIdx: number, phaseIdx: number) {
+    setTickets((prev) => prev.map((ticket, i) => {
+      if (i !== ticketIdx) return ticket
+      if (ticket.phases.length <= 1) return ticket
+      return { ...ticket, phases: ticket.phases.filter((_, idx) => idx !== phaseIdx) }
+    }))
+  }
+
   function addTicket() { setTickets((t) => [...t, defaultTicket()]) }
   function removeTicket(idx: number) {
     if (tickets.length <= 1) return
@@ -81,6 +117,13 @@ export default function EOCreateEventPage() {
         if (Number(t.maxPerOrder) < 1) { toast.error('Batas per transaksi minimal 1 tiket'); return false }
         if (Number(t.maxPerAccount) < 0) { toast.error('Batas per akun tidak boleh negatif'); return false }
         if (!t.saleStartDate || !t.saleEndDate) { toast.error('Tanggal penjualan tiket wajib diisi'); return false }
+        if (t.pricingEnabled) {
+          if (t.phases.length < 1) { toast.error('Minimal 1 fase harga jika pricing bertingkat diaktifkan'); return false }
+          for (const phase of t.phases) {
+            if (!phase.phaseName.trim()) { toast.error('Nama fase harga wajib diisi'); return false }
+            if (Number(phase.price) < 0) { toast.error('Harga fase tidak boleh negatif'); return false }
+          }
+        }
       }
     }
     return true
@@ -118,13 +161,29 @@ export default function EOCreateEventPage() {
       }
 
       for (const tt of tickets) {
+        const ticketTypeId = crypto.randomUUID()
         await api.post('/ticket-types', {
-          id: crypto.randomUUID(), eventId, name: tt.name.trim(),
+          id: ticketTypeId, eventId, name: tt.name.trim(),
           description: tt.description.trim() || undefined, price: Number(tt.price),
           quota: Number(tt.quota), sold: 0, maxPerOrder: Number(tt.maxPerOrder) || 5, maxPerAccount: Number(tt.maxPerAccount) || 0,
           saleStartDate: new Date(tt.saleStartDate).toISOString(),
           saleEndDate: new Date(tt.saleEndDate).toISOString(),
         })
+
+        if (tt.pricingEnabled) {
+          for (let phaseIdx = 0; phaseIdx < tt.phases.length; phaseIdx += 1) {
+            const phase = tt.phases[phaseIdx]
+            await api.post('/ticket-pricing-phases', {
+              ticketTypeId,
+              phaseName: phase.phaseName.trim(),
+              price: Number(phase.price || 0),
+              quota: phase.quota === '' ? null : Number(phase.quota),
+              startDate: phase.startDate ? new Date(phase.startDate).toISOString() : null,
+              endDate: phase.endDate ? new Date(phase.endDate).toISOString() : null,
+              sortOrder: phaseIdx,
+            })
+          }
+        }
       }
 
       toast.success(publish ? 'Event berhasil dipublikasikan!' : 'Event disimpan sebagai draft.')
@@ -249,6 +308,52 @@ export default function EOCreateEventPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5"><Label>Mulai Jual *</Label><Input type="datetime-local" value={tt.saleStartDate} onChange={(e) => updateTicket(idx, 'saleStartDate', e.target.value)} /></div>
                     <div className="space-y-1.5"><Label>Selesai Jual *</Label><Input type="datetime-local" value={tt.saleEndDate} onChange={(e) => updateTicket(idx, 'saleEndDate', e.target.value)} /></div>
+                  </div>
+
+                  <div className="rounded-lg border border-border p-3 space-y-3 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`pricing-enabled-${idx}`}
+                        type="checkbox"
+                        checked={tt.pricingEnabled}
+                        onChange={(e) => setTickets((prev) => prev.map((ticket, tIdx) => tIdx === idx ? { ...ticket, pricingEnabled: e.target.checked } : ticket))}
+                        className="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+                      />
+                      <Label htmlFor={`pricing-enabled-${idx}`} className="cursor-pointer">Aktifkan harga bertingkat (Early Bird / Flash Sale)</Label>
+                    </div>
+
+                    {tt.pricingEnabled && (
+                      <div className="space-y-3">
+                        {tt.phases.map((phase, phaseIdx) => (
+                          <div key={phaseIdx} className="rounded-md border border-border p-3 bg-background space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold text-foreground">Fase {phaseIdx + 1}</p>
+                              {tt.phases.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="text-xs text-destructive"
+                                  onClick={() => removePricingPhase(idx, phaseIdx)}
+                                >
+                                  Hapus
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1"><Label className="text-xs">Nama</Label><Input value={phase.phaseName} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'phaseName', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Harga</Label><Input type="number" min="0" value={phase.price} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'price', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Kuota fase (opsional)</Label><Input type="number" min="0" value={phase.quota} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'quota', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Mulai (opsional)</Label><Input type="datetime-local" value={phase.startDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'startDate', e.target.value)} /></div>
+                              <div className="space-y-1 col-span-2"><Label className="text-xs">Selesai (opsional)</Label><Input type="datetime-local" value={phase.endDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'endDate', e.target.value)} /></div>
+                            </div>
+                          </div>
+                        ))}
+
+                        <Button type="button" variant="outline" size="sm" onClick={() => addPricingPhase(idx)}>
+                          + Tambah Fase
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

@@ -3,6 +3,11 @@ import crypto from 'crypto';
 import pool from '../db.js';
 import { authenticateToken, requireVerifiedEmail } from '../middleware/auth.js';
 import { sendOrderExpiredEmail, sendPaymentSuccessEmail } from '../lib/transactionalEmails.js';
+import {
+  buildOrderPricingContext,
+  finalizePaidOrderAccounting,
+  validateAndComputePromo,
+} from '../lib/checkoutPricing.js';
 
 const router = Router();
 
@@ -19,7 +24,7 @@ function asBadRequest(message) {
 // GET /api/orders
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    let query = 'SELECT DISTINCT o.* FROM orders o';
+    let query = 'SELECT DISTINCT o.*, p.code AS promo_code FROM orders o LEFT JOIN promo_codes p ON p.id = o.promo_code_id';
     const params = [];
     const conditions = [];
 
@@ -109,7 +114,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const id = req.params.id;
     
     // 1. Check regular orders
-    const [orders] = await pool.query('SELECT * FROM orders WHERE id = ?', [id]);
+    const [orders] = await pool.query(
+      `SELECT o.*, p.code AS promo_code
+       FROM orders o
+       LEFT JOIN promo_codes p ON p.id = o.promo_code_id
+       WHERE o.id = ?`,
+      [id]
+    );
     if (orders.length > 0) return res.json(orders[0]);
     
     // 2. Check resale orders if not found in regular orders (or if ID prefix matches)
@@ -132,10 +143,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
   let conn;
   try {
-    const { id, expired_at, items } = req.body;
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Item pesanan tidak boleh kosong' });
-    }
+    const { id, expired_at, items, promo_code } = req.body;
 
     const orderId = id || `ord_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
     const now = toDbDateTime();
@@ -143,90 +151,19 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    const normalizedItems = [];
-    let grandTotal = 0;
+    const pricingCtx = await buildOrderPricingContext(conn, items || [], req.user.id, true);
+    const promoCtx = await validateAndComputePromo(conn, {
+      promoCode: promo_code,
+      eventId: pricingCtx.eventId,
+      userId: req.user.id,
+      normalizedItems: pricingCtx.normalizedItems,
+      subtotal: pricingCtx.subtotal,
+      lockPromo: true,
+    });
 
-    for (const item of items) {
-      const ticketTypeId = item.ticket_type_id;
-      const quantity = Number(item.quantity);
-
-      if (!ticketTypeId) {
-        throw asBadRequest('ticket_type_id wajib diisi');
-      }
-      if (!Number.isInteger(quantity) || quantity <= 0) {
-        throw asBadRequest('Quantity tiket harus bilangan bulat lebih dari 0');
-      }
-      if (normalizedItems.some((normalizedItem) => normalizedItem.ticketTypeId === ticketTypeId)) {
-        throw asBadRequest('Satu jenis tiket hanya boleh muncul sekali dalam pesanan');
-      }
-
-      const [ticketRows] = await conn.query(
-        `SELECT id, name, price, quota, sold, max_per_order, max_per_account
-         FROM ticket_types
-         WHERE id = ?
-         FOR UPDATE`,
-        [ticketTypeId]
-      );
-
-      if (ticketRows.length === 0) {
-        throw asBadRequest(`Jenis tiket ${ticketTypeId} tidak ditemukan`);
-      }
-
-      const ticketType = ticketRows[0];
-      const maxPerOrder = Number(ticketType.max_per_order || 0);
-      const maxPerAccount = Number(ticketType.max_per_account || 0);
-      const sold = Number(ticketType.sold || 0);
-      const quota = Number(ticketType.quota || 0);
-
-      if (maxPerOrder > 0 && quantity > maxPerOrder) {
-        throw asBadRequest(`Maksimal pembelian untuk tiket ${ticketType.name} adalah ${maxPerOrder} tiket per transaksi.`);
-      }
-
-      const remainingQuota = quota - sold;
-      if (quantity > remainingQuota) {
-        throw asBadRequest(`Kuota tiket ${ticketType.name} tidak mencukupi. Sisa kuota ${Math.max(0, remainingQuota)} tiket.`);
-      }
-
-      if (maxPerAccount > 0) {
-        const [ownedRows] = await conn.query(
-          `SELECT COALESCE(SUM(t.quantity), 0) AS total_owned
-           FROM tickets t
-           JOIN orders o ON o.id = t.order_id
-           WHERE t.ticket_type_id = ?
-             AND t.user_id = ?
-             AND o.status = 'PAID'
-             AND t.status NOT IN ('CANCELLED', 'TRANSFERRED')`,
-          [ticketTypeId, req.user.id]
-        );
-
-        const totalOwned = Number(ownedRows[0]?.total_owned || 0);
-        const totalAfterPurchase = totalOwned + quantity;
-
-        if (totalAfterPurchase > maxPerAccount) {
-          const remainingAllowed = Math.max(0, maxPerAccount - totalOwned);
-          throw asBadRequest(
-            `Batas pembelian untuk tiket ${ticketType.name} adalah ${maxPerAccount} tiket per akun. ` +
-            `Kamu sudah memiliki ${totalOwned} tiket. Kamu hanya bisa membeli ${remainingAllowed} tiket lagi.`
-          );
-        }
-      }
-
-      const attendeeJson = item.attendee_details
-        ? (typeof item.attendee_details === 'string' ? item.attendee_details : JSON.stringify(item.attendee_details))
-        : null;
-      const unitPrice = Number(ticketType.price || 0);
-      const subtotal = unitPrice * quantity;
-
-      grandTotal += subtotal;
-      normalizedItems.push({
-        id: `oi_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`,
-        ticketTypeId,
-        quantity,
-        unitPrice,
-        subtotal,
-        attendeeJson,
-      });
-    }
+    const discountAmount = Number(promoCtx.discountAmount || 0);
+    const grandTotal = Math.max(0, Number(pricingCtx.subtotal || 0) - discountAmount);
+    const normalizedItems = pricingCtx.normalizedItems;
 
     const isFreeOrder = grandTotal === 0;
     const orderStatus = isFreeOrder ? 'PAID' : 'PENDING';
@@ -234,16 +171,16 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
     const expiredAt = isFreeOrder ? null : (expired_at || null);
 
     await conn.query(
-      `INSERT INTO orders (id, user_id, total_amount, status, expired_at, created_at, paid_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [orderId, req.user.id, grandTotal, orderStatus, expiredAt, now, paidAt]
+      `INSERT INTO orders (id, user_id, total_amount, status, expired_at, created_at, paid_at, promo_code_id, discount_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [orderId, req.user.id, grandTotal, orderStatus, expiredAt, now, paidAt, promoCtx.promo?.id || null, discountAmount]
     );
 
     for (const item of normalizedItems) {
       await conn.query(
-        `INSERT INTO order_items (id, order_id, ticket_type_id, quantity, unit_price, subtotal, attendee_details)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [item.id, orderId, item.ticketTypeId, item.quantity, item.unitPrice, item.subtotal, item.attendeeJson]
+        `INSERT INTO order_items (id, order_id, ticket_type_id, quantity, unit_price, subtotal, attendee_details, active_phase_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [item.id, orderId, item.ticketTypeId, item.quantity, item.unitPrice, item.subtotal, item.attendeeJson, item.activePhaseId]
       );
 
       await conn.query(
@@ -260,6 +197,22 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
           [ticketId, orderId, req.user.id, item.ticketTypeId, qrCode, 'ACTIVE', 0, now, item.quantity, item.attendeeJson, item.id]
         );
       }
+    }
+
+    if (isFreeOrder) {
+      await finalizePaidOrderAccounting(
+        conn,
+        {
+          id: orderId,
+          promo_code_id: promoCtx.promo?.id || null,
+          discount_amount: discountAmount,
+        },
+        normalizedItems.map((item) => ({
+          active_phase_id: item.activePhaseId,
+          quantity: item.quantity,
+        })),
+        req.user.id
+      );
     }
 
     await conn.commit();

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Ticket, ShoppingBag, QrCode, Calendar, MapPin, Tag } from 'lucide-react'
+import { Ticket, ShoppingBag, QrCode, Calendar, MapPin, Tag, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -10,7 +10,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/lib/api'
-import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing } from '@/lib/mappers'
+import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapTicketPricingPhase } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatIDR, formatDateRange } from '@/lib/utils'
 import type { Ticket as TicketType, Order, Event, TicketType as TT, ResaleListing } from '@/types'
@@ -84,7 +84,19 @@ function QRDisplay({ code }: { code: string }) {
   )
 }
 
-interface EnrichedTicket { ticket: TicketType; ticketType: TT | null; event: Event | null; resaleListing: ResaleListing | null; orderQty: number; orderTotal: number }
+interface EnrichedTicket {
+  ticket: TicketType
+  ticketType: TT | null
+  event: Event | null
+  resaleListing: ResaleListing | null
+  orderQty: number
+  orderTotalPaid: number
+  ticketSubtotalPaid: number
+  orderItemCount: number
+  pricingPhaseName: string | null
+  usedPromo: boolean
+  promoDiscount: number
+}
 
 export default function BuyerDashboardPage() {
   const { dbUser, refreshUser } = useAuth()
@@ -115,24 +127,100 @@ export default function BuyerDashboardPage() {
     try {
       const rawTickets: any = await api.get(`/tickets?user_id=${dbUser.id}`)
       const ticketsMapped = rawTickets.map(mapTicket)
+      const ttCache = new Map<string, TT | null>()
+      const eventCache = new Map<string, Event | null>()
+      const orderCache = new Map<string, Order | null>()
+      const orderItemsCache = new Map<string, any[]>()
+      const phaseNameCache = new Map<string, string | null>()
+
       const enriched = await Promise.all(
         ticketsMapped.map(async (t: TicketType) => {
           let ticketType: TT | null = null
           let event: Event | null = null
           let resaleListing: ResaleListing | null = null
+          let order: Order | null = null
+          let orderItems: any[] = []
+          let matchedItem: any = null
+          let pricingPhaseName: string | null = null
+
           try {
-            const rawTT: any = await api.get(`/ticket-types/${t.ticketTypeId}`)
-            ticketType = mapTicketType(rawTT)
-            if (ticketType) {
-              const rawEv: any = await api.get(`/events/${ticketType.eventId}`)
-              event = mapEvent(rawEv)
+            if (ttCache.has(t.ticketTypeId)) {
+              ticketType = ttCache.get(t.ticketTypeId) || null
+            } else {
+              const rawTT: any = await api.get(`/ticket-types/${t.ticketTypeId}`)
+              ticketType = mapTicketType(rawTT)
+              ttCache.set(t.ticketTypeId, ticketType)
             }
+
+            if (ticketType) {
+              if (eventCache.has(ticketType.eventId)) {
+                event = eventCache.get(ticketType.eventId) || null
+              } else {
+                const rawEv: any = await api.get(`/events/${ticketType.eventId}`)
+                event = mapEvent(rawEv)
+                eventCache.set(ticketType.eventId, event)
+              }
+            }
+
+            if (orderCache.has(t.orderId)) {
+              order = orderCache.get(t.orderId) || null
+            } else {
+              const rawOrder: any = await api.get(`/orders/${t.orderId}`)
+              order = rawOrder ? mapOrder(rawOrder) : null
+              orderCache.set(t.orderId, order)
+            }
+
+            if (orderItemsCache.has(t.orderId)) {
+              orderItems = orderItemsCache.get(t.orderId) || []
+            } else {
+              const rawItems: any = await api.get(`/order-items?order_id=${t.orderId}`)
+              orderItems = Array.isArray(rawItems) ? rawItems.map(mapOrderItem) : []
+              orderItemsCache.set(t.orderId, orderItems)
+            }
+
+            matchedItem = t.orderItemId
+              ? orderItems.find((item) => item.id === t.orderItemId)
+              : orderItems.find((item) => item.ticketTypeId === t.ticketTypeId)
+
+            const activePhaseId = matchedItem?.activePhaseId
+            if (activePhaseId) {
+              if (phaseNameCache.has(activePhaseId)) {
+                pricingPhaseName = phaseNameCache.get(activePhaseId) || null
+              } else {
+                const rawPhases: any = await api.get(`/ticket-pricing-phases?ticket_type_id=${t.ticketTypeId}`)
+                const phases = Array.isArray(rawPhases) ? rawPhases.map(mapTicketPricingPhase) : []
+                const phase = phases.find((p) => p.id === activePhaseId)
+                pricingPhaseName = phase?.phaseName || null
+                phaseNameCache.set(activePhaseId, pricingPhaseName)
+              }
+            }
+
             if (t.status === 'LISTED_FOR_RESALE') {
               const listings = await api.get(`/resale-listings?ticket_id=${t.id}&status=${'OPEN'}`)
               resaleListing = (listings as ResaleListing[])[0] ?? null
             }
           } catch { /* ignore */ }
-          return { ticket: t, ticketType, event, resaleListing, orderQty: t.quantity, orderTotal: Number(ticketType?.price ?? 0) * t.quantity }
+
+          const ticketSubtotalPaid = Number(
+            matchedItem?.subtotal ?? (Number(ticketType?.price ?? 0) * Number(t.quantity || 1))
+          )
+          const orderTotalPaid = Number(order?.totalAmount ?? ticketSubtotalPaid)
+          const promoDiscount = Number(order?.discountAmount ?? 0)
+          const usedPromo = promoDiscount > 0 || Boolean(order?.promoCodeId)
+
+          return {
+            ticket: t,
+            ticketType,
+            event,
+            resaleListing,
+            orderQty: t.quantity,
+            orderTotalPaid,
+            ticketSubtotalPaid,
+            orderItemCount: orderItems.length,
+            pricingPhaseName,
+            usedPromo,
+            promoDiscount,
+          }
         })
       )
       setTickets(enriched)
@@ -244,81 +332,147 @@ function TicketCard({ enriched, onCancelResale }: {
   enriched: EnrichedTicket
   onCancelResale: () => void
 }) {
-  const { ticket, ticketType, event, resaleListing, orderQty, orderTotal } = enriched
+  const {
+    ticket,
+    ticketType,
+    event,
+    resaleListing,
+    orderQty,
+    orderTotalPaid,
+    ticketSubtotalPaid,
+    orderItemCount,
+    pricingPhaseName,
+    usedPromo,
+    promoDiscount,
+  } = enriched
+  const displayPaidAmount = orderItemCount > 1 ? ticketSubtotalPaid : orderTotalPaid
   const isUsed = Number(ticket.isUsed) > 0
   const isListed = ticket.status === 'LISTED_FOR_RESALE'
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <div className="flex items-stretch rounded-xl border border-border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow">
       <div className={`w-2 shrink-0 ${isListed ? 'bg-amber-500' : 'bg-accent'}`} />
-      <div className="flex-1 flex items-center gap-4 p-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <p className="text-sm font-semibold text-foreground truncate">
-              {event?.title ?? 'Event tidak ditemukan'}
-            </p>
-            <StatusBadge status={isUsed ? 'USED' : ticket.status} />
-          </div>
-          <p className="text-xs text-muted-foreground mb-2">{ticketType?.name ?? 'Tiket'}</p>
-          {event && (
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Calendar size={11} /><span>{formatDateRange(event.startDate, event.endDate)}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MapPin size={11} /><span className="truncate">{event.location}</span>
-              </div>
+      <div className="flex-1 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="text-sm font-semibold text-foreground truncate">
+                {event?.title ?? 'Event tidak ditemukan'}
+              </p>
+              <StatusBadge status={isUsed ? 'USED' : ticket.status} />
             </div>
-          )}
-          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg w-fit">
-            <span className="flex items-center gap-1.5"><Tag size={12} className="text-accent" /> <span className="font-bold text-foreground">{ticket.quantity} Tiket</span></span>
-            <span className="w-px h-3 bg-border" />
-            <span>Total: <span className="font-mono font-bold text-foreground">{formatIDR(orderTotal)}</span></span>
+            <p className="text-xs text-muted-foreground">{ticketType?.name ?? 'Tiket'}</p>
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg w-fit">
+              <span className="flex items-center gap-1.5"><Tag size={12} className="text-accent" /> <span className="font-bold text-foreground">{ticket.quantity} Tiket</span></span>
+              <span className="w-px h-3 bg-border" />
+              <span>Total Dibayar: <span className="font-mono font-bold text-foreground">{formatIDR(displayPaidAmount)}</span></span>
+            </div>
           </div>
 
-          {ticket.quantity > 1 && ticket.attendeeDetails && Array.isArray(ticket.attendeeDetails) && (
-            <div className="mt-3 space-y-1">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Daftar Peserta:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(ticket.attendeeDetails as any[]).map((a, i) => (
-                  <span key={i} className="text-[9px] px-1.5 py-0.5 bg-secondary text-secondary-foreground rounded border border-border">
-                    {a.name || 'Peserta'}
-                  </span>
-                ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? <ChevronUp size={13} className="mr-1" /> : <ChevronDown size={13} className="mr-1" />}
+            {expanded ? 'Sembunyikan' : 'Lihat Detail'}
+          </Button>
+        </div>
+
+        <div
+          className={`grid transition-all duration-300 ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="pt-4 border-t border-border">
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  {event && (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Calendar size={11} /><span>{formatDateRange(event.startDate, event.endDate)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <MapPin size={11} /><span className="truncate">{event.location}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
+                      Harga tiket: <span className="font-semibold text-foreground">{pricingPhaseName || 'Regular'}</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
+                      Voucher promo: <span className="font-semibold text-foreground">{usedPromo ? 'Ya' : 'Tidak'}</span>
+                    </span>
+                    {promoDiscount > 0 && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                        Diskon order: -{formatIDR(promoDiscount)}
+                      </span>
+                    )}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
+                      Subtotal tiket ini: <span className="font-semibold text-foreground">{formatIDR(ticketSubtotalPaid)}</span>
+                    </span>
+                    {orderItemCount > 1 && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
+                        Total order: <span className="font-semibold text-foreground">{formatIDR(orderTotalPaid)}</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {ticket.quantity > 1 && ticket.attendeeDetails && Array.isArray(ticket.attendeeDetails) && (
+                    <div className="mt-3 space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Daftar Peserta:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(ticket.attendeeDetails as any[]).map((a, i) => (
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-secondary text-secondary-foreground rounded border border-border">
+                            {a.name || 'Peserta'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {isListed && resaleListing && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                        Dijual: {formatIDR(Number(resaleListing.askingPrice))}
+                      </span>
+                      <button
+                        onClick={onCancelResale}
+                        className="text-xs text-muted-foreground hover:text-destructive hover:font-bold transition-all underline decoration-dotted underline-offset-4"
+                      >
+                        Batalkan
+                      </button>
+                    </div>
+                  )}
+
+                  {ticket.status === 'ACTIVE' && !isUsed && event?.isResaleAllowed && (
+                    <Link to="/dashboard/tickets/$ticketId/sell" params={{ ticketId: ticket.id }}>
+                      <button
+                        className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline transition-colors"
+                      >
+                        <Tag size={11} /> Jual Tiket
+                      </button>
+                    </Link>
+                  )}
+
+                  {ticket.status === 'ACTIVE' && !isUsed && event && (
+                    <SeatSocialBanner
+                      eventId={event.id}
+                      ticketId={ticket.id}
+                      eventName={event.title}
+                    />
+                  )}
+                </div>
+
+                <QRDisplay code={ticket.qrCode} />
               </div>
             </div>
-          )}
-          {isListed && resaleListing && (
-            <div className="mt-2 flex items-center gap-2">
-               <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                Dijual: {formatIDR(Number(resaleListing.askingPrice))}
-              </span>
-              <button 
-                onClick={onCancelResale} 
-                className="text-xs text-muted-foreground hover:text-destructive hover:font-bold transition-all underline decoration-dotted underline-offset-4"
-              >
-                Batalkan
-              </button>
-            </div>
-          )}
-          {ticket.status === 'ACTIVE' && !isUsed && event?.isResaleAllowed && (
-            <Link to="/dashboard/tickets/$ticketId/sell" params={{ ticketId: ticket.id }}>
-              <button
-                className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline transition-colors"
-              >
-                <Tag size={11} /> Jual Tiket
-              </button>
-            </Link>
-          )}
-          {ticket.status === 'ACTIVE' && !isUsed && event && (
-            <SeatSocialBanner 
-              eventId={event.id} 
-              ticketId={ticket.id} 
-              eventName={event.title} 
-            />
-          )}
+          </div>
         </div>
-        <QRDisplay code={ticket.qrCode} />
       </div>
     </div>
   )
@@ -326,8 +480,9 @@ function TicketCard({ enriched, onCancelResale }: {
 
 function OrderRow({ order, reload }: { order: Order; reload: () => Promise<void> }) {
   const [checking, setChecking] = useState(false)
-  const [items, setItems] = useState<{ ticketTypeName: string; eventTitle: string; qty: number; unitPrice: number; subtotal: number }[]>([])
+  const [items, setItems] = useState<{ ticketTypeName: string; eventTitle: string; qty: number; unitPrice: number; subtotal: number; pricingLabel: string; isEarlyBird: boolean }[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   // Auto sync on mount if pending
   useEffect(() => {
@@ -350,7 +505,9 @@ function OrderRow({ order, reload }: { order: Order; reload: () => Promise<void>
             eventTitle: listing.event_title || 'Event Resale',
             qty: 1,
             unitPrice: Number(order.totalAmount),
-            subtotal: Number(order.totalAmount)
+            subtotal: Number(order.totalAmount),
+            pricingLabel: 'Resale',
+            isEarlyBird: false,
           }])
         }
       } else {
@@ -368,7 +525,16 @@ function OrderRow({ order, reload }: { order: Order; reload: () => Promise<void>
               const ev = mapEvent(rawEv)
               eventTitle = ev.title
             } catch {}
-            return { ticketTypeName, eventTitle, qty: item.quantity, unitPrice: item.unitPrice, subtotal: item.subtotal }
+            const pricingLabel = item.activePhaseName || 'Regular'
+            return {
+              ticketTypeName,
+              eventTitle,
+              qty: item.quantity,
+              unitPrice: item.unitPrice,
+              subtotal: item.subtotal,
+              pricingLabel,
+              isEarlyBird: /early\s*bird/i.test(pricingLabel),
+            }
           })
         )
         setItems(enriched)
@@ -450,44 +616,85 @@ function OrderRow({ order, reload }: { order: Order; reload: () => Promise<void>
         <div className="flex items-center gap-3">
           <StatusBadge status={order.status} />
           <p className="text-sm font-bold font-mono text-foreground">{formatIDR(Number(order.totalAmount))}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? <ChevronUp size={13} className="mr-1" /> : <ChevronDown size={13} className="mr-1" />}
+            {expanded ? 'Sembunyikan' : 'Lihat Detail'}
+          </Button>
         </div>
       </div>
 
       {/* Items detail */}
-      <div className="p-4">
-        {loadingItems ? (
-          <div className="text-xs text-muted-foreground">Memuat rincian...</div>
-        ) : items.length === 0 ? (
-          <div className="text-xs text-muted-foreground">Tidak ada rincian item.</div>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item, i) => (
-              <div key={i} className="flex items-center justify-between text-sm">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-foreground truncate">{item.eventTitle}</p>
-                  <p className="text-xs text-muted-foreground">{item.ticketTypeName} × {item.qty}</p>
-                </div>
-                <div className="text-right shrink-0 ml-4">
-                  <p className="font-mono text-sm font-medium text-foreground">{formatIDR(item.subtotal)}</p>
-                  <p className="text-xs text-muted-foreground">@ {formatIDR(item.unitPrice)}</p>
-                </div>
+      <div className={`grid transition-all duration-300 ease-out motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          <div className="p-4">
+            {loadingItems ? (
+              <div className="text-xs text-muted-foreground">Memuat rincian...</div>
+            ) : items.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Tidak ada rincian item.</div>
+            ) : (
+              <div className="space-y-2">
+                {items.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">{item.eventTitle}</p>
+                      <p className="text-xs text-muted-foreground">{item.ticketTypeName} × {item.qty}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
+                          Harga: <span className="font-semibold text-foreground">{item.pricingLabel}</span>
+                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${item.isEarlyBird ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-border bg-background text-muted-foreground'}`}>
+                          Early Bird: <span className="font-semibold">{item.isEarlyBird ? 'Ya' : 'Tidak'}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 ml-4">
+                      <p className="font-mono text-sm font-medium text-foreground">{formatIDR(item.subtotal)}</p>
+                      <p className="text-xs text-muted-foreground">@ {formatIDR(item.unitPrice)}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {order.paidAt && (
-          <p className="text-xs text-emerald-600 mt-3">Dibayar pada: {formatDate(order.paidAt)}</p>
-        )}
+            {!order.id.startsWith('rord_') && (
+              <div className={`mt-3 rounded-lg border p-2.5 text-xs ${Number(order.discountAmount || 0) > 0 ? 'border-emerald-200 bg-emerald-50/50' : 'border-border bg-muted/20'}`}>
+                {Number(order.discountAmount || 0) > 0 ? (
+                  <div className="space-y-1 text-emerald-700">
+                    <p>
+                      Kode Voucher Promo: <span className="font-semibold">{order.promoCode || '-'}</span>
+                    </p>
+                    <p>
+                      Potongan Promo: <span className="font-semibold">- {formatIDR(Number(order.discountAmount || 0))}</span>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Kode Voucher Promo: <span className="font-semibold text-foreground">Tidak digunakan</span>
+                  </p>
+                )}
+              </div>
+            )}
 
-        {order.status === 'PENDING' && (
-          <div className="flex gap-2 mt-4">
-            <Button size="sm" onClick={handlePay} className="bg-accent text-accent-foreground flex-1 sm:flex-none">Bayar</Button>
-            <Button size="sm" variant="outline" onClick={() => handleCheckStatus(false)} disabled={checking} className="flex-1 shrink-0 sm:flex-none">
-              {checking ? 'Mengecek...' : 'Sinkronkan Midtrans'}
-            </Button>
+            {order.paidAt && (
+              <p className="text-xs text-emerald-600 mt-3">Dibayar pada: {formatDate(order.paidAt)}</p>
+            )}
+
+            {order.status === 'PENDING' && (
+              <div className="flex gap-2 mt-4">
+                <Button size="sm" onClick={handlePay} className="bg-accent text-accent-foreground flex-1 sm:flex-none">Bayar</Button>
+                <Button size="sm" variant="outline" onClick={() => handleCheckStatus(false)} disabled={checking} className="flex-1 shrink-0 sm:flex-none">
+                  {checking ? 'Mengecek...' : 'Sinkronkan Midtrans'}
+                </Button>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

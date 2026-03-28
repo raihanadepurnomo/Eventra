@@ -1,5 +1,5 @@
 // Database snake_case to frontend camelCase mappers
-import type { Event, TicketType, EOProfile, Order, OrderItem, Ticket, ResaleListing, User, ResaleOrder, SellerBalance, Withdrawal } from '@/types'
+import type { Event, TicketType, EOProfile, Order, OrderItem, Ticket, ResaleListing, User, ResaleOrder, SellerBalance, Withdrawal, PromoCode, TicketPricingPhase } from '@/types'
 
 type RawRow = Record<string, unknown>
 
@@ -38,8 +38,21 @@ export function mapTicketType(t: RawRow): TicketType {
     id: t.id as string, eventId: (t.event_id ?? t.eventId) as string,
     name: t.name as string, description: t.description as string | undefined,
     price: Number(t.price), quota: Number(t.quota), sold: Number(t.sold),
+    effectivePrice: Number(t.effective_price ?? t.effectivePrice ?? t.active_phase_price ?? t.activePhasePrice ?? t.price ?? 0),
     maxPerOrder: Number(t.max_per_order ?? t.maxPerOrder ?? 5),
     maxPerAccount: Number(t.max_per_account ?? t.maxPerAccount ?? 0),
+    hasPricingPhases: !!(t.has_pricing_phases ?? t.hasPricingPhases),
+    isPriceUnavailable: !!(t.is_price_unavailable ?? t.isPriceUnavailable),
+    activePhaseId: (t.active_phase_id ?? t.activePhaseId) as string | undefined,
+    activePhaseName: (t.active_phase_name ?? t.activePhaseName) as string | undefined,
+    activePhasePrice: t.active_phase_price !== undefined || t.activePhasePrice !== undefined
+      ? Number(t.active_phase_price ?? t.activePhasePrice)
+      : undefined,
+    activePhaseEndDate: (t.active_phase_end_date ?? t.activePhaseEndDate) as string | undefined,
+    activePhaseQuotaRemaining:
+      t.active_phase_quota_remaining !== undefined || t.activePhaseQuotaRemaining !== undefined
+        ? Number(t.active_phase_quota_remaining ?? t.activePhaseQuotaRemaining)
+        : null,
     saleStartDate: (t.sale_start_date ?? t.saleStartDate) as string,
     saleEndDate: (t.sale_end_date ?? t.saleEndDate) as string,
   }
@@ -59,6 +72,9 @@ export function mapOrder(o: RawRow): Order {
   return {
     id: o.id as string, userId: (o.user_id ?? o.userId) as string,
     totalAmount: Number(o.total_amount ?? o.total_paid ?? o.totalAmount),
+    discountAmount: Number(o.discount_amount ?? o.discountAmount ?? 0),
+    promoCodeId: (o.promo_code_id ?? o.promoCodeId) as string | undefined,
+    promoCode: (o.promo_code ?? o.promoCode) as string | undefined,
     status: o.status as Order['status'],
     paymentMethod: (o.payment_method ?? o.paymentMethod) as string | undefined,
     paymentToken: (o.payment_token ?? o.paymentToken) as string | undefined,
@@ -78,6 +94,8 @@ export function mapOrderItem(oi: RawRow): OrderItem {
     ticketTypeId: (oi.ticket_type_id ?? oi.ticketTypeId) as string,
     quantity: Number(oi.quantity), unitPrice: Number(oi.unit_price ?? oi.unitPrice),
     subtotal: Number(oi.subtotal),
+    activePhaseId: (oi.active_phase_id ?? oi.activePhaseId) as string | undefined,
+    activePhaseName: (oi.active_phase_name ?? oi.activePhaseName) as string | undefined,
     attendeeDetails: details as string | any[] | undefined
   }
 }
@@ -89,6 +107,7 @@ export function mapTicket(t: RawRow): Ticket {
   }
   return {
     id: t.id as string, orderId: (t.order_id ?? t.orderId) as string,
+    orderItemId: (t.order_item_id ?? t.orderItemId) as string | undefined,
     userId: (t.user_id ?? t.userId) as string,
     ticketTypeId: (t.ticket_type_id ?? t.ticketTypeId) as string,
     qrCode: (t.qr_code ?? t.qrCode) as string,
@@ -172,5 +191,52 @@ export function mapWithdrawal(w: RawRow): Withdrawal {
     createdAt: (w.created_at ?? w.createdAt) as string,
     userName: (w.user_name ?? w.userName) as string | undefined,
     userEmail: (w.user_email ?? w.userEmail) as string | undefined,
+  }
+}
+
+export function mapPromoCode(p: RawRow): PromoCode {
+  let appliesTo = p.applies_to ?? p.appliesTo
+  if (typeof appliesTo === 'string') {
+    try {
+      appliesTo = JSON.parse(appliesTo)
+    } catch {
+      appliesTo = undefined
+    }
+  }
+
+  return {
+    id: p.id as string,
+    eventId: (p.event_id ?? p.eventId) as string,
+    code: String(p.code || ''),
+    description: p.description as string | undefined,
+    discountType: (p.discount_type ?? p.discountType) as PromoCode['discountType'],
+    discountValue: Number(p.discount_value ?? p.discountValue ?? 0),
+    minPurchase: Number(p.min_purchase ?? p.minPurchase ?? 0),
+    maxDiscount: p.max_discount !== undefined && p.max_discount !== null
+      ? Number(p.max_discount)
+      : (p.maxDiscount !== undefined && p.maxDiscount !== null ? Number(p.maxDiscount) : undefined),
+    quota: p.quota !== undefined && p.quota !== null ? Number(p.quota) : undefined,
+    usedCount: Number(p.used_count ?? p.usedCount ?? 0),
+    maxPerUser: Number(p.max_per_user ?? p.maxPerUser ?? 1),
+    appliesTo: Array.isArray(appliesTo) ? appliesTo.map(String) : undefined,
+    startDate: (p.start_date ?? p.startDate) as string | undefined,
+    endDate: (p.end_date ?? p.endDate) as string | undefined,
+    isActive: Boolean(p.is_active ?? p.isActive),
+    createdAt: (p.created_at ?? p.createdAt) as string | undefined,
+  }
+}
+
+export function mapTicketPricingPhase(phase: RawRow): TicketPricingPhase {
+  return {
+    id: phase.id as string,
+    ticketTypeId: (phase.ticket_type_id ?? phase.ticketTypeId) as string,
+    phaseName: (phase.phase_name ?? phase.phaseName) as string,
+    price: Number(phase.price || 0),
+    quota: phase.quota !== undefined && phase.quota !== null ? Number(phase.quota) : undefined,
+    quotaSold: Number(phase.quota_sold ?? phase.quotaSold ?? 0),
+    startDate: (phase.start_date ?? phase.startDate) as string | undefined,
+    endDate: (phase.end_date ?? phase.endDate) as string | undefined,
+    sortOrder: Number(phase.sort_order ?? phase.sortOrder ?? 0),
+    createdAt: (phase.created_at ?? phase.createdAt) as string | undefined,
   }
 }

@@ -12,11 +12,27 @@ import { toast } from '@/components/ui/toast'
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/lib/api'
-import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing } from '@/lib/mappers'
+import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapTicketPricingPhase } from '@/lib/mappers'
 import type { Event, TicketType } from '@/types'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 
 const CATEGORIES = ['Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
+
+function toDateTimeLocal(value?: string | null) {
+  if (!value) return ''
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return value
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function toIsoOrNull(value?: string | null) {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
+}
 
 export default function EOEventDetailPage() {
   const { id } = useParams({ from: '/eo/events/$id' })
@@ -27,15 +43,28 @@ export default function EOEventDetailPage() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [bannerFile, setBannerFile] = useState<File | null>(null)
+  const [ticketPhases, setTicketPhases] = useState<Record<string, any[]>>({})
   useEffect(() => { load() }, [id])
 
   async function load() {
     setLoading(true)
     try {
-      const rawEv = await api.get(`/events/${id}`)
+      const [rawEv, rawTts, rawPhases] = await Promise.all([
+        api.get(`/events/${id}`),
+        api.get(`/ticket-types?event_id=${id}`),
+        api.get(`/ticket-pricing-phases?event_id=${id}`),
+      ])
+
       setEvent(mapEvent(rawEv as any))
-      const rawTts = await api.get(`/ticket-types?event_id=${id}`)
       setTicketTypes((rawTts as any[]).map(mapTicketType))
+
+      const grouped: Record<string, any[]> = {}
+      for (const phaseRaw of (rawPhases as any[])) {
+        const phase = mapTicketPricingPhase(phaseRaw)
+        if (!grouped[phase.ticketTypeId]) grouped[phase.ticketTypeId] = []
+        grouped[phase.ticketTypeId].push(phase)
+      }
+      setTicketPhases(grouped)
     } finally {
       setLoading(false)
     }
@@ -78,7 +107,9 @@ export default function EOEventDetailPage() {
 
   async function handleAddTicket() {
     const newTT = await api.post('/ticket-types', { id: crypto.randomUUID(), eventId: id, name: 'Tiket Baru', description: undefined, price: 0, quota: 100, sold: 0, maxPerOrder: 5, maxPerAccount: 0, saleStartDate: new Date().toISOString(), saleEndDate: new Date(Date.now() + 7 * 86400000).toISOString() })
-    setTicketTypes((prev) => [...prev, mapTicketType(newTT as any)])
+    const mapped = mapTicketType(newTT as any)
+    setTicketTypes((prev) => [...prev, mapped])
+    setTicketPhases((prev) => ({ ...prev, [mapped.id]: [] }))
     toast.success('Jenis tiket ditambahkan.')
   }
 
@@ -90,7 +121,77 @@ export default function EOEventDetailPage() {
   async function handleDeleteTicket(ttId: string) {
     await api.delete(`/ticket-types/${ttId}`)
     setTicketTypes((prev) => prev.filter((t) => t.id !== ttId))
+    setTicketPhases((prev) => {
+      const next = { ...prev }
+      delete next[ttId]
+      return next
+    })
     toast.success('Tiket dihapus.')
+  }
+
+  function handleUpdatePhaseField(ticketTypeId: string, phaseId: string, field: string, value: any) {
+    setTicketPhases((prev) => ({
+      ...prev,
+      [ticketTypeId]: (prev[ticketTypeId] || []).map((phase) =>
+        phase.id === phaseId ? { ...phase, [field]: value } : phase
+      ),
+    }))
+  }
+
+  async function handleAddPricingPhase(ticketTypeId: string) {
+    try {
+      const existing = ticketPhases[ticketTypeId] || []
+      const created = await api.post('/ticket-pricing-phases', {
+        ticketTypeId,
+        phaseName: `Fase ${existing.length + 1}`,
+        price: 0,
+        quota: null,
+        startDate: null,
+        endDate: null,
+        sortOrder: existing.length,
+      })
+
+      const mapped = mapTicketPricingPhase(created as any)
+      setTicketPhases((prev) => ({
+        ...prev,
+        [ticketTypeId]: [...(prev[ticketTypeId] || []), mapped],
+      }))
+      toast.success('Fase harga ditambahkan.')
+      await load()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menambah fase harga.')
+    }
+  }
+
+  async function handleSavePricingPhase(ticketTypeId: string, phase: any) {
+    try {
+      await api.put(`/ticket-pricing-phases/${phase.id}`, {
+        phaseName: phase.phaseName,
+        price: Number(phase.price || 0),
+        quota: phase.quota === '' || phase.quota === undefined || phase.quota === null ? null : Number(phase.quota),
+        startDate: toIsoOrNull(phase.startDate),
+        endDate: toIsoOrNull(phase.endDate),
+        sortOrder: Number(phase.sortOrder || 0),
+      })
+      toast.success('Fase harga disimpan.')
+      await load()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menyimpan fase harga.')
+    }
+  }
+
+  async function handleDeletePricingPhase(ticketTypeId: string, phaseId: string) {
+    try {
+      await api.delete(`/ticket-pricing-phases/${phaseId}`)
+      setTicketPhases((prev) => ({
+        ...prev,
+        [ticketTypeId]: (prev[ticketTypeId] || []).filter((phase) => phase.id !== phaseId),
+      }))
+      toast.success('Fase harga dihapus.')
+      await load()
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal menghapus fase harga.')
+    }
   }
 
   if (loading) return (
@@ -117,6 +218,9 @@ export default function EOEventDetailPage() {
             <StatusBadge status={event.status} />
           </div>
           <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: '/eo/events/$id/promos', params: { id } })}>
+              Promo Code
+            </Button>
             {event.status === 'DRAFT' && (
               <Button size="sm" variant="outline" className="text-emerald-700 border-emerald-300" onClick={handlePublish}>
                 <Globe size={13} className="mr-1" /> Publikasikan
@@ -198,7 +302,18 @@ export default function EOEventDetailPage() {
               <p className="text-sm text-muted-foreground">Belum ada jenis tiket.</p>
             ) : (
               ticketTypes.map((tt) => (
-                <TicketEditor key={tt.id} tt={tt} onChange={(updated) => setTicketTypes((prev) => prev.map((t) => t.id === tt.id ? updated : t))} onSave={() => handleSaveTicket(tt)} onDelete={() => handleDeleteTicket(tt.id)} />
+                <TicketEditor
+                  key={tt.id}
+                  tt={tt}
+                  phases={ticketPhases[tt.id] || []}
+                  onChange={(updated) => setTicketTypes((prev) => prev.map((t) => t.id === tt.id ? updated : t))}
+                  onSave={() => handleSaveTicket(tt)}
+                  onDelete={() => handleDeleteTicket(tt.id)}
+                  onAddPhase={() => handleAddPricingPhase(tt.id)}
+                  onPhaseChange={(phaseId, field, value) => handleUpdatePhaseField(tt.id, phaseId, field, value)}
+                  onSavePhase={(phase) => handleSavePricingPhase(tt.id, phase)}
+                  onDeletePhase={(phaseId) => handleDeletePricingPhase(tt.id, phaseId)}
+                />
               ))
             )}
           </div>
@@ -219,8 +334,29 @@ export default function EOEventDetailPage() {
   )
 }
 
-function TicketEditor({ tt, onChange, onSave, onDelete }: { tt: TicketType; onChange: (t: TicketType) => void; onSave: () => void; onDelete: () => void }) {
+function TicketEditor({
+  tt,
+  phases,
+  onChange,
+  onSave,
+  onDelete,
+  onAddPhase,
+  onPhaseChange,
+  onSavePhase,
+  onDeletePhase,
+}: {
+  tt: TicketType
+  phases: any[]
+  onChange: (t: TicketType) => void
+  onSave: () => void
+  onDelete: () => void
+  onAddPhase: () => void
+  onPhaseChange: (phaseId: string, field: string, value: any) => void
+  onSavePhase: (phase: any) => void
+  onDeletePhase: (phaseId: string) => void
+}) {
   const upd = (field: keyof TicketType, val: string | number) => onChange({ ...tt, [field]: val })
+
   return (
     <div className="border border-border rounded-lg p-3 space-y-2.5 text-sm">
       <div className="flex items-center justify-between">
@@ -248,6 +384,64 @@ function TicketEditor({ tt, onChange, onSave, onDelete }: { tt: TicketType; onCh
           <Label className="text-xs">Batas per Akun</Label>
           <Input type="number" min="0" className="h-7 text-xs mt-1" value={tt.maxPerAccount} onChange={(e) => upd('maxPerAccount', e.target.value)} />
         </div>
+      </div>
+
+      <div className="border-t border-border pt-3 mt-1 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-foreground">Pricing Bertingkat (Early Bird / Flash Sale)</p>
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onAddPhase}>
+            <Plus size={12} className="mr-1" /> Tambah Fase
+          </Button>
+        </div>
+
+        {phases.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Belum ada fase harga. Klik Tambah Fase untuk membuat Early Bird.</p>
+        ) : (
+          [...phases]
+            .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
+            .map((phase, idx) => (
+              <div key={phase.id} className="rounded-md border border-border p-2.5 bg-muted/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-foreground">Fase {idx + 1}</p>
+                  <div className="flex items-center gap-1.5">
+                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onSavePhase(phase)}>
+                      <Save size={11} className="mr-1" /> Simpan
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs text-destructive" onClick={() => onDeletePhase(phase.id)}>
+                      <Trash2 size={11} className="mr-1" /> Hapus
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Nama Fase</Label>
+                    <Input className="h-7 text-xs mt-1" value={phase.phaseName || ''} onChange={(e) => onPhaseChange(phase.id, 'phaseName', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Harga</Label>
+                    <Input type="number" min="0" className="h-7 text-xs mt-1" value={phase.price ?? 0} onChange={(e) => onPhaseChange(phase.id, 'price', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Kuota Fase (opsional)</Label>
+                    <Input type="number" min="0" className="h-7 text-xs mt-1" value={phase.quota ?? ''} onChange={(e) => onPhaseChange(phase.id, 'quota', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Urutan</Label>
+                    <Input type="number" min="0" className="h-7 text-xs mt-1" value={phase.sortOrder ?? 0} onChange={(e) => onPhaseChange(phase.id, 'sortOrder', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Mulai (opsional)</Label>
+                    <Input type="datetime-local" className="h-7 text-xs mt-1" value={toDateTimeLocal(phase.startDate)} onChange={(e) => onPhaseChange(phase.id, 'startDate', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Selesai (opsional)</Label>
+                    <Input type="datetime-local" className="h-7 text-xs mt-1" value={toDateTimeLocal(phase.endDate)} onChange={(e) => onPhaseChange(phase.id, 'endDate', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            ))
+        )}
       </div>
     </div>
   )

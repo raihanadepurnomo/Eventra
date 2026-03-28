@@ -8,6 +8,7 @@ import {
   sendPaymentSuccessEmail,
   sendPendingPaymentEmail,
 } from '../lib/transactionalEmails.js';
+import { finalizePaidOrderAccounting } from '../lib/checkoutPricing.js';
 
 const router = Router();
 
@@ -55,6 +56,17 @@ router.post('/create', authenticateToken, requireVerifiedEmail, async (req, res)
       };
     });
 
+    const discountAmount = Number(order.discount_amount || 0);
+    if (discountAmount > 0) {
+      itemDetails.push({
+        id: 'PROMO',
+        price: -discountAmount,
+        quantity: 1,
+        name: 'Promo Discount',
+      });
+      totalGross -= discountAmount;
+    }
+
     // Extract first attendee name for Midtrans Customer Details
     let customerName = req.user.name || 'Customer';
     if (items.length > 0 && items[0].attendee_details) {
@@ -75,7 +87,9 @@ router.post('/create', authenticateToken, requireVerifiedEmail, async (req, res)
     console.log(`[Midtrans] Order ${orderId} -> Customer: ${customerName}`);
 
     // We use the derived total, fallback to order.total_amount
-    const finalAmount = totalGross > 0 ? totalGross : Number(order.total_amount);
+    const finalAmount = Number(order.total_amount || 0) > 0
+      ? Number(order.total_amount)
+      : Math.max(0, totalGross);
 
     // 2. Initialize Midtrans Snap
     const snap = new midtransClient.Snap({
@@ -213,6 +227,13 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
         );
       }
 
+      await finalizePaidOrderAccounting(
+        pool,
+        order,
+        items,
+        order.user_id
+      );
+
       await sendPaymentSuccessEmail(pool, order_id, statusResponse.payment_type || order.payment_method || null);
     } else if (newStatus !== order.status) {
       await pool.query('UPDATE orders SET status = ? WHERE id = ?', [newStatus, order_id]);
@@ -320,6 +341,13 @@ router.post('/webhook', async (req, res) => {
           [ticketId, order_id, order.user_id, item.ticket_type_id, qrCode, 'ACTIVE', 0, now, item.quantity, attendeeData, item.id]
         );
       }
+
+      await finalizePaidOrderAccounting(
+        pool,
+        order,
+        items,
+        order.user_id
+      );
 
       await sendPaymentSuccessEmail(pool, order_id, notification.payment_type || order.payment_method || null);
     } else {
