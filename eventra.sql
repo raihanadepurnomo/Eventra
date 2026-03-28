@@ -144,16 +144,18 @@ CREATE TABLE `orders` (
   `payment_token` text DEFAULT NULL,
   `paid_at` text DEFAULT NULL,
   `expired_at` text DEFAULT NULL,
-  `created_at` text DEFAULT NULL
+  `created_at` text DEFAULT NULL,
+  `promo_code_id` varchar(255) DEFAULT NULL,
+  `discount_amount` int(11) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `orders`
 --
 
-INSERT INTO `orders` (`id`, `user_id`, `total_amount`, `status`, `payment_method`, `payment_token`, `paid_at`, `expired_at`, `created_at`) VALUES
-('1dca4348-afeb-4cf7-998e-33dea633acdf', 'user_6dd3e1bcc9d9', 50000, 'PAID', NULL, '2cd6ebde-a063-4534-bc15-faf334c717d4', '2026-03-28 07:28:20', '2026-03-28T07:43:02.373Z', '2026-03-28 07:28:02'),
-('2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'user_9c30441f5fa3', 50000, 'PAID', NULL, '77327c62-4c6e-4766-bcbc-1103d7272f20', '2026-03-28 07:30:23', '2026-03-28T07:45:08.465Z', '2026-03-28 07:30:08');
+INSERT INTO `orders` (`id`, `user_id`, `total_amount`, `status`, `payment_method`, `payment_token`, `paid_at`, `expired_at`, `created_at`, `promo_code_id`, `discount_amount`) VALUES
+('1dca4348-afeb-4cf7-998e-33dea633acdf', 'user_6dd3e1bcc9d9', 50000, 'PAID', NULL, '2cd6ebde-a063-4534-bc15-faf334c717d4', '2026-03-28 07:28:20', '2026-03-28T07:43:02.373Z', '2026-03-28 07:28:02', NULL, 0),
+('2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'user_9c30441f5fa3', 50000, 'PAID', NULL, '77327c62-4c6e-4766-bcbc-1103d7272f20', '2026-03-28 07:30:23', '2026-03-28T07:45:08.465Z', '2026-03-28 07:30:08', NULL, 0);
 
 -- --------------------------------------------------------
 
@@ -168,16 +170,17 @@ CREATE TABLE `order_items` (
   `quantity` int(11) DEFAULT NULL,
   `unit_price` int(11) DEFAULT NULL,
   `subtotal` int(11) DEFAULT NULL,
-  `attendee_details` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`attendee_details`))
+  `attendee_details` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`attendee_details`)),
+  `active_phase_id` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `order_items`
 --
 
-INSERT INTO `order_items` (`id`, `order_id`, `ticket_type_id`, `quantity`, `unit_price`, `subtotal`, `attendee_details`) VALUES
-('oi_4f1ff8ad', '2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]'),
-('oi_6ab7d31c', '1dca4348-afeb-4cf7-998e-33dea633acdf', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"Raihan Ade Purnomo\",\"email\":\"raihanadepurnomo123@gmail.com\",\"phone\":\"081273284284\"}]');
+INSERT INTO `order_items` (`id`, `order_id`, `ticket_type_id`, `quantity`, `unit_price`, `subtotal`, `attendee_details`, `active_phase_id`) VALUES
+('oi_4f1ff8ad', '2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]', NULL),
+('oi_6ab7d31c', '1dca4348-afeb-4cf7-998e-33dea633acdf', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"Raihan Ade Purnomo\",\"email\":\"raihanadepurnomo123@gmail.com\",\"phone\":\"081273284284\"}]', NULL);
 
 -- --------------------------------------------------------
 
@@ -208,6 +211,65 @@ CREATE TABLE `password_reset_tokens` (
   `lookup_hash` text DEFAULT NULL,
   `expires_at` text DEFAULT NULL,
   `created_at` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `promo_codes`
+--
+
+CREATE TABLE `promo_codes` (
+  `id` varchar(255) NOT NULL,
+  `event_id` varchar(255) NOT NULL,
+  `code` varchar(50) NOT NULL,
+  `description` varchar(200) DEFAULT NULL,
+  `discount_type` enum('percentage','flat') NOT NULL,
+  `discount_value` int(11) NOT NULL,
+  `min_purchase` int(11) NOT NULL DEFAULT 0,
+  `max_discount` int(11) DEFAULT NULL,
+  `quota` int(11) DEFAULT NULL,
+  `used_count` int(11) NOT NULL DEFAULT 0,
+  `max_per_user` int(11) NOT NULL DEFAULT 1,
+  `applies_to` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`applies_to`)),
+  `start_date` datetime DEFAULT NULL,
+  `end_date` datetime DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `promo_code_usages`
+--
+
+CREATE TABLE `promo_code_usages` (
+  `id` varchar(255) NOT NULL,
+  `promo_code_id` varchar(255) NOT NULL,
+  `user_id` varchar(255) NOT NULL,
+  `order_id` varchar(255) NOT NULL,
+  `discount_amount` int(11) NOT NULL,
+  `used_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `ticket_pricing_phases`
+--
+
+CREATE TABLE `ticket_pricing_phases` (
+  `id` varchar(255) NOT NULL,
+  `ticket_type_id` varchar(255) NOT NULL,
+  `phase_name` varchar(100) NOT NULL,
+  `price` int(11) NOT NULL,
+  `quota` int(11) DEFAULT NULL,
+  `quota_sold` int(11) NOT NULL DEFAULT 0,
+  `start_date` datetime DEFAULT NULL,
+  `end_date` datetime DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -510,6 +572,24 @@ ALTER TABLE `orders`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `promo_codes`
+--
+ALTER TABLE `promo_codes`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_event_code` (`event_id`,`code`),
+  ADD KEY `idx_promo_active` (`is_active`),
+  ADD KEY `idx_promo_event` (`event_id`);
+
+--
+-- Indexes for table `promo_code_usages`
+--
+ALTER TABLE `promo_code_usages`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_promo_usage_order` (`order_id`),
+  ADD KEY `idx_promo_usage_user` (`user_id`),
+  ADD KEY `idx_promo_usage_code` (`promo_code_id`);
+
+--
 -- Indexes for table `order_items`
 --
 ALTER TABLE `order_items`
@@ -575,6 +655,13 @@ ALTER TABLE `ticket_types`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `ticket_pricing_phases`
+--
+ALTER TABLE `ticket_pricing_phases`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_ticket_type` (`ticket_type_id`);
+
+--
 -- Indexes for table `users`
 --
 ALTER TABLE `users`
@@ -619,6 +706,20 @@ ALTER TABLE `resale_listings`
   ADD CONSTRAINT `resale_listings_ticket_id_fk` FOREIGN KEY (`ticket_id`) REFERENCES `tickets` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `promo_codes`
+--
+ALTER TABLE `promo_codes`
+  ADD CONSTRAINT `promo_codes_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `promo_code_usages`
+--
+ALTER TABLE `promo_code_usages`
+  ADD CONSTRAINT `promo_code_usages_ibfk_1` FOREIGN KEY (`promo_code_id`) REFERENCES `promo_codes` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `promo_code_usages_ibfk_2` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `promo_code_usages_ibfk_3` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `resale_orders`
 --
 ALTER TABLE `resale_orders`
@@ -642,6 +743,12 @@ ALTER TABLE `otp_codes`
 --
 ALTER TABLE `seller_balances`
   ADD CONSTRAINT `seller_balances_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `ticket_pricing_phases`
+--
+ALTER TABLE `ticket_pricing_phases`
+  ADD CONSTRAINT `ticket_pricing_phases_ibfk_1` FOREIGN KEY (`ticket_type_id`) REFERENCES `ticket_types` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `waves`

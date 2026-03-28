@@ -68,10 +68,18 @@ export interface TicketType {
   name: string
   description?: string
   price: number
+  effectivePrice?: number
   quota: number
   sold: number
   maxPerOrder: number
   maxPerAccount: number
+  hasPricingPhases?: boolean
+  isPriceUnavailable?: boolean
+  activePhaseId?: string
+  activePhaseName?: string
+  activePhasePrice?: number
+  activePhaseEndDate?: string
+  activePhaseQuotaRemaining?: number | null
   saleStartDate: string
   saleEndDate: string
 }
@@ -80,12 +88,47 @@ export interface Order {
   id: string
   userId: string
   totalAmount: number
+  discountAmount?: number
+  promoCodeId?: string
+  promoCode?: string
   status: OrderStatus
   paymentMethod?: string
   paymentToken?: string
   paidAt?: string
   expiredAt: string
   createdAt: string
+}
+
+export interface PromoCode {
+  id: string
+  eventId: string
+  code: string
+  description?: string
+  discountType: 'percentage' | 'flat'
+  discountValue: number
+  minPurchase: number
+  maxDiscount?: number
+  quota?: number
+  usedCount: number
+  maxPerUser: number
+  appliesTo?: string[]
+  startDate?: string
+  endDate?: string
+  isActive: boolean
+  createdAt?: string
+}
+
+export interface TicketPricingPhase {
+  id: string
+  ticketTypeId: string
+  phaseName: string
+  price: number
+  quota?: number
+  quotaSold: number
+  startDate?: string
+  endDate?: string
+  sortOrder: number
+  createdAt?: string
 }
 
 export interface OrderItem {
@@ -95,12 +138,15 @@ export interface OrderItem {
   quantity: number
   unitPrice: number
   subtotal: number
+  activePhaseId?: string
+  activePhaseName?: string
   attendeeDetails?: string | any[]
 }
 
 export interface Ticket {
   id: string
   orderId: string
+  orderItemId?: string
   userId: string
   ticketTypeId: string
   qrCode: string

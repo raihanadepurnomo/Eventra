@@ -19,7 +19,7 @@ export function EventCard({
 }: EventCardProps) {
   const minPrice =
     ticketTypes && ticketTypes.length > 0
-      ? Math.min(...ticketTypes.map((t) => t.price))
+      ? Math.min(...ticketTypes.map((t) => Number(t.effectivePrice ?? t.price)))
       : null
 
   return (

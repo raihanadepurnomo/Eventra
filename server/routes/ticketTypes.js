@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import pool from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { enrichTicketTypeWithActivePricing } from '../lib/checkoutPricing.js';
 
 const router = Router();
 
@@ -15,7 +16,14 @@ router.get('/', async (req, res) => {
       params.push(req.query.event_id);
     }
     const [rows] = await pool.query(query, params);
-    res.json(rows);
+
+    const enrichedRows = [];
+    for (const row of rows) {
+      const enriched = await enrichTicketTypeWithActivePricing(pool, row, new Date());
+      enrichedRows.push(enriched);
+    }
+
+    res.json(enrichedRows);
   } catch (err) {
     console.error('[ticketTypes/list]', err);
     res.status(500).json({ error: 'Server error' });
@@ -27,7 +35,8 @@ router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM ticket_types WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Ticket type tidak ditemukan' });
-    res.json(rows[0]);
+    const enriched = await enrichTicketTypeWithActivePricing(pool, rows[0], new Date());
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

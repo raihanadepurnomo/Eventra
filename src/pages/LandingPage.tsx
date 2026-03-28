@@ -110,6 +110,7 @@ function mapTicketType(t: Record<string, unknown>): TicketType {
     name: t.name as string,
     description: t.description as string | undefined,
     price: Number(t.price),
+    effectivePrice: Number(t.effective_price ?? t.effectivePrice ?? t.active_phase_price ?? t.activePhasePrice ?? t.price ?? 0),
     quota: Number(t.quota),
     sold: Number(t.sold),
     maxPerOrder: Number(t.max_per_order ?? t.maxPerOrder),
@@ -131,13 +132,27 @@ export default function LandingPage() {
       try {
         const rawData = await api.get<Record<string, unknown>[]>('/events?status=PUBLISHED')
         const data = rawData.map(mapEvent)
-        setEvents(data)
         const rawTts = await api.get<Record<string, unknown>[]>('/ticket-types')
         const allTts = rawTts.map(mapTicketType)
+
+        const nowMs = Date.now()
+        const visibleEvents = data.filter((ev) => {
+          const evTts = allTts.filter((t) => t.eventId === ev.id)
+          if (evTts.length === 0) return false
+
+          // Keep event visible as long as at least one ticket sale window has not ended yet.
+          return evTts.some((t) => {
+            const endMs = new Date(t.saleEndDate).getTime()
+            return !Number.isNaN(endMs) && endMs >= nowMs
+          })
+        })
+
+        setEvents(visibleEvents)
+
         const map: Record<string, number | null> = {}
-        for (const ev of data) {
+        for (const ev of visibleEvents) {
           const evTts = allTts.filter(t => t.eventId === ev.id)
-          const prices = evTts.map(t => t.price)
+          const prices = evTts.map(t => Number(t.effectivePrice ?? t.price))
           map[ev.id] = prices.length > 0 ? Math.min(...prices) : null
         }
         setTicketMap(map)

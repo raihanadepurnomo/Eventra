@@ -49,6 +49,30 @@ function isSaleActive(tt: TicketType): boolean {
   return now >= new Date(tt.saleStartDate).getTime() && now <= new Date(tt.saleEndDate).getTime()
 }
 
+function isTicketPurchasableNow(tt: TicketType): boolean {
+  if (tt.hasPricingPhases) {
+    return !Boolean(tt.isPriceUnavailable)
+  }
+  return isSaleActive(tt)
+}
+
+function getEffectivePrice(tt: TicketType): number {
+  const candidate = tt.activePhasePrice ?? tt.effectivePrice ?? tt.price
+  return Number(candidate || 0)
+}
+
+function formatRemainingTime(targetDate?: string, nowMs = Date.now()): string | null {
+  if (!targetDate) return null
+  const endMs = new Date(targetDate).getTime()
+  if (Number.isNaN(endMs) || endMs <= nowMs) return null
+
+  const totalSeconds = Math.floor((endMs - nowMs) / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${String(hours).padStart(2, '0')} : ${String(minutes).padStart(2, '0')} : ${String(seconds).padStart(2, '0')}`
+}
+
 interface ResaleTicket { listing: ResaleListing; ticketTypeName: string; price: number }
 
 function TicketRow({
@@ -56,17 +80,29 @@ function TicketRow({
   qty,
   ownedCount,
   hasOwnershipData,
+  nowMs,
   onChange,
 }: {
   tt: TicketType
   qty: number
   ownedCount: number
   hasOwnershipData: boolean
+  nowMs: number
   onChange: (id: string, q: number) => void
 }) {
   const remaining = Number(tt.quota) - Number(tt.sold)
+  const displayPrice = getEffectivePrice(tt)
+  const hasDiscountedPhase = Boolean(tt.activePhaseName) && Number(tt.price) > displayPrice
+  const phaseCountdown = formatRemainingTime(tt.activePhaseEndDate, nowMs)
+  const phaseRemaining = tt.activePhaseQuotaRemaining
   const soldOut = remaining <= 0
-  const active = isSaleActive(tt)
+  const active = isTicketPurchasableNow(tt)
+  const availabilityLabel = soldOut ? 'Habis' : (!active ? 'Belum tersedia' : `${remaining} tersedia`)
+  const availabilityClassName = soldOut
+    ? 'bg-destructive/10 text-destructive border-destructive/20'
+    : (!active
+      ? 'bg-muted text-muted-foreground border-border'
+      : 'bg-emerald-50 text-emerald-700 border-emerald-200')
   const maxPerOrder = Number(tt.maxPerOrder || 0)
   const maxPerAccount = Number(tt.maxPerAccount || 0)
   const remainingPerAccount = maxPerAccount > 0
@@ -81,23 +117,43 @@ function TicketRow({
   const disabled = soldOut || !active || reachedAccountLimit
 
   return (
-    <div className={`p-3 rounded-lg border ${disabled ? 'opacity-60 bg-muted/30' : 'bg-background'} border-border`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
+    <div className={`p-4 rounded-lg border ${disabled ? 'opacity-60 bg-muted/30' : 'bg-background'} border-border`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0 pr-1">
           <p className="text-sm font-semibold text-foreground">{tt.name}</p>
           {tt.description && <p className="text-xs text-muted-foreground mt-0.5">{tt.description}</p>}
-          <div className="flex items-center gap-2 mt-1">
-            {Number(tt.price) === 0 ? (
-              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200">
+          <div className="mt-1.5 space-y-1">
+            {displayPrice === 0 ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200 whitespace-nowrap">
                 GRATIS
               </span>
+            ) : hasDiscountedPhase ? (
+              <div className="flex flex-col items-start gap-1.5 pt-0.5">
+                <span className="text-xs text-muted-foreground line-through font-mono whitespace-nowrap">
+                  {formatIDR(Number(tt.price))}
+                </span>
+                <span className="text-base font-bold font-mono text-foreground whitespace-nowrap">
+                  {formatIDR(displayPrice)}
+                </span>
+              </div>
             ) : (
-              <span className="text-sm font-bold font-mono text-foreground">{formatIDR(Number(tt.price))}</span>
+              <span className="text-base font-bold font-mono text-foreground whitespace-nowrap">
+                {formatIDR(displayPrice)}
+              </span>
             )}
-            {soldOut ? <span className="text-xs text-destructive">Habis</span>
-              : !active ? <span className="text-xs text-muted-foreground">Belum tersedia</span>
-              : <span className="text-xs text-muted-foreground">{remaining} tersisa</span>}
           </div>
+
+          {tt.activePhaseName && (
+            <div className="mt-1.5 space-y-1">
+              <p className="text-[11px] text-amber-700">{tt.activePhaseName}</p>
+              {phaseCountdown && (
+                <p className="text-[11px] text-muted-foreground">Berakhir dalam {phaseCountdown}</p>
+              )}
+              {phaseRemaining !== null && phaseRemaining !== undefined && !Number.isNaN(Number(phaseRemaining)) && (
+                <p className="text-[11px] text-muted-foreground">Sisa kuota fase ini: {Math.max(0, Number(phaseRemaining))} tiket</p>
+              )}
+            </div>
+          )}
 
           {maxPerAccount > 0 && hasOwnershipData && (
             reachedAccountLimit ? (
@@ -117,14 +173,19 @@ function TicketRow({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onChange(tt.id, Math.max(0, qty - 1))} disabled={disabled || qty === 0}>
-            <Minus className="h-3 w-3" />
-          </Button>
-          <span className="w-6 text-center text-sm font-semibold tabular-nums">{qty}</span>
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => onChange(tt.id, Math.min(maxSelectableQty, qty + 1))} disabled={disabled || qty >= maxSelectableQty}>
-            <Plus className="h-3 w-3" />
-          </Button>
+        <div className="min-w-[132px] sm:min-w-[144px] flex flex-col items-end gap-2.5 shrink-0 pt-0.5">
+          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${availabilityClassName}`}>
+            {availabilityLabel}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onChange(tt.id, Math.max(0, qty - 1))} disabled={disabled || qty === 0}>
+              <Minus className="h-3 w-3" />
+            </Button>
+            <span className="w-7 text-center text-sm font-semibold tabular-nums">{qty}</span>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onChange(tt.id, Math.min(maxSelectableQty, qty + 1))} disabled={disabled || qty >= maxSelectableQty}>
+              <Plus className="h-3 w-3" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -132,15 +193,29 @@ function TicketRow({
 }
 
 function BookingCard({ 
-  ticketTypes, quantities, ownedTicketCounts, hasOwnershipData, selectedItems, total, totalQty, buying, isAuthenticated, countdown, onQtyChange, onBuy,
+  ticketTypes, quantities, ownedTicketCounts, hasOwnershipData, selectedItems, subtotal, discountAmount, total, totalQty, buying, isAuthenticated, countdown, onQtyChange, onBuy,
   step, attendeeForms, onAttendeeChange, onBack,
-  buyForSelf, onSelfToggle, currentUser
+  buyForSelf, onSelfToggle, currentUser,
+  nowMs,
+  promoInput,
+  onPromoInputChange,
+  onApplyPromo,
+  promoLoading,
+  promoError,
+  appliedPromo,
 }: {
   ticketTypes: TicketType[]; quantities: Record<string, number>; ownedTicketCounts: Record<string, number>; hasOwnershipData: boolean; selectedItems: TicketType[]
-  total: number; totalQty: number; buying: boolean; isAuthenticated: boolean
+  subtotal: number; discountAmount: number; total: number; totalQty: number; buying: boolean; isAuthenticated: boolean
   countdown: string | null; onQtyChange: (id: string, q: number) => void; onBuy: () => void
   step: 'select' | 'details', attendeeForms: Record<string, any[]>, onAttendeeChange: (ttId: string, idx: number, field: string, val: string) => void, onBack: () => void,
-  buyForSelf: boolean, onSelfToggle: (val: boolean) => void, currentUser: any
+  buyForSelf: boolean, onSelfToggle: (val: boolean) => void, currentUser: any,
+  nowMs: number,
+  promoInput: string,
+  onPromoInputChange: (value: string) => void,
+  onApplyPromo: () => void,
+  promoLoading: boolean,
+  promoError: string | null,
+  appliedPromo: { code: string; description?: string; discountAmount: number } | null,
 }) {
   const firstSelectedTtId = selectedItems[0]?.id
 
@@ -173,6 +248,7 @@ function BookingCard({
                   qty={quantities[tt.id] ?? 0}
                   ownedCount={ownedTicketCounts[tt.id] ?? 0}
                   hasOwnershipData={hasOwnershipData}
+                  nowMs={nowMs}
                   onChange={onQtyChange}
                 />
               ))}
@@ -239,12 +315,41 @@ function BookingCard({
 
       {selectedItems.length > 0 && (
         <div className="border-t border-border pt-3 mb-4 space-y-1.5">
+          <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3 mb-2">
+            <p className="text-xs font-medium text-foreground">Punya kode promo?</p>
+            <div className="flex gap-2">
+              <Input
+                value={promoInput}
+                onChange={(e) => onPromoInputChange(e.target.value.toUpperCase())}
+                placeholder="Contoh: EARLYBIRD"
+                className="h-8 text-xs"
+              />
+              <Button type="button" variant="outline" className="h-8 text-xs" onClick={onApplyPromo} disabled={promoLoading || !promoInput.trim()}>
+                {promoLoading ? 'Cek...' : 'Pakai'}
+              </Button>
+            </div>
+            {appliedPromo && (
+              <p className="text-[11px] text-emerald-700">Kode {appliedPromo.code} berhasil dipakai. Hemat {formatIDR(appliedPromo.discountAmount)}.</p>
+            )}
+            {promoError && <p className="text-[11px] text-destructive">{promoError}</p>}
+          </div>
+
           {selectedItems.map((t) => (
             <div key={t.id} className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t.name} x{quantities[t.id]}</span>
-              <span className="font-mono">{Number(t.price) === 0 ? 'GRATIS' : formatIDR(Number(t.price) * (quantities[t.id] ?? 0))}</span>
+              <span className="font-mono">{getEffectivePrice(t) === 0 ? 'GRATIS' : formatIDR(getEffectivePrice(t) * (quantities[t.id] ?? 0))}</span>
             </div>
           ))}
+          <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border mt-1">
+            <span>Subtotal</span>
+            <span className="font-mono">{subtotal === 0 && totalQty > 0 ? 'GRATIS' : formatIDR(subtotal)}</span>
+          </div>
+          {discountAmount > 0 && (
+            <div className="flex items-center justify-between text-xs text-emerald-700">
+              <span>Diskon</span>
+              <span className="font-mono">- {formatIDR(discountAmount)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-sm font-bold text-foreground pt-1 border-t border-border mt-1">
             <span>Total</span>
             <span className="font-mono">{total === 0 && totalQty > 0 ? 'GRATIS' : formatIDR(total)}</span>
@@ -301,6 +406,11 @@ export default function EventDetailPage() {
   const [attendeeForms, setAttendeeForms] = useState<Record<string, any[]>>({})
   const [ownedTicketCounts, setOwnedTicketCounts] = useState<Record<string, number>>({})
   const [hasOwnershipData, setHasOwnershipData] = useState(false)
+  const [nowMs, setNowMs] = useState(Date.now())
+  const [promoInput, setPromoInput] = useState('')
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; description?: string; discountAmount: number } | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+  const [promoLoading, setPromoLoading] = useState(false)
   const [buyForSelf, setBuyForSelf] = useState(true)
   const [buyingResale, setBuyingResale] = useState<string | null>(null)
   
@@ -419,7 +529,16 @@ export default function EventDetailPage() {
     return () => clearInterval(interval)
   }, [pendingOrderId])
 
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   function getMaxSelectable(tt: TicketType) {
+    if (tt.hasPricingPhases && tt.isPriceUnavailable) {
+      return 0
+    }
+
     const remainingQuota = Number(tt.quota) - Number(tt.sold)
     const perOrderLimit = Number(tt.maxPerOrder || 0)
     const perAccountLimit = Number(tt.maxPerAccount || 0)
@@ -482,7 +601,9 @@ export default function EventDetailPage() {
   }
 
   const selectedItems = ticketTypes.filter((t) => (quantities[t.id] ?? 0) > 0)
-  const total = selectedItems.reduce((sum, t) => sum + Number(t.price) * (quantities[t.id] ?? 0), 0)
+  const subtotal = selectedItems.reduce((sum, t) => sum + getEffectivePrice(t) * (quantities[t.id] ?? 0), 0)
+  const discountAmount = Math.min(appliedPromo?.discountAmount || 0, subtotal)
+  const total = Math.max(0, subtotal - discountAmount)
   const totalQty = selectedItems.reduce((sum, t) => sum + (quantities[t.id] ?? 0), 0)
 
   function promptVerifyEmail() {
@@ -506,6 +627,76 @@ export default function EventDetailPage() {
       },
     })
   }
+
+  async function validatePromoCode(codeToValidate: string, silent = false) {
+    if (!isAuthenticated || !dbUser) {
+      setPromoError('Login terlebih dahulu untuk menggunakan kode promo.')
+      return false
+    }
+    if (!event?.id) return false
+    if (selectedItems.length === 0) {
+      setPromoError('Pilih tiket terlebih dahulu sebelum memakai promo.')
+      return false
+    }
+
+    const normalizedCode = String(codeToValidate || '').trim().toUpperCase()
+    if (!normalizedCode) {
+      setPromoError('Kode promo wajib diisi.')
+      return false
+    }
+
+    if (!silent) setPromoLoading(true)
+    try {
+      const resp: any = await api.post('/promos/validate', {
+        code: normalizedCode,
+        eventId: event.id,
+        items: selectedItems.map((tt) => ({
+          ticketTypeId: tt.id,
+          quantity: quantities[tt.id] ?? 0,
+        })),
+      })
+
+      if (!resp?.valid) {
+        const reason = resp?.reason || 'Kode promo tidak valid.'
+        setAppliedPromo(null)
+        setPromoError(reason)
+        if (!silent) toast.error(reason)
+        return false
+      }
+
+      setAppliedPromo({
+        code: normalizedCode,
+        description: resp.description || undefined,
+        discountAmount: Number(resp.discountAmount || 0),
+      })
+      setPromoError(null)
+      if (!silent) toast.success(`Kode ${normalizedCode} berhasil dipakai.`)
+      return true
+    } catch (err: any) {
+      const msg = err?.message || 'Gagal validasi kode promo.'
+      setAppliedPromo(null)
+      setPromoError(msg)
+      if (!silent) toast.error(msg)
+      return false
+    } finally {
+      if (!silent) setPromoLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!appliedPromo?.code) return
+    if (selectedItems.length === 0) {
+      setAppliedPromo(null)
+      setPromoError(null)
+      return
+    }
+
+    const timer = setTimeout(() => {
+      void validatePromoCode(appliedPromo.code, true)
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [appliedPromo?.code, selectedItems.map((item) => `${item.id}:${quantities[item.id] || 0}`).join('|')])
 
   async function handleBuy() {
     if (!isAuthenticated) { navigate({ to: '/login' }); return }
@@ -563,13 +754,15 @@ export default function EventDetailPage() {
         status: total === 0 ? 'PAID' : 'PENDING',
         expiredAt: total === 0 ? undefined : expiredAt,
         createdAt: now,
+        promoCode: appliedPromo?.code,
         items: selectedItems.map(tt => {
           const qty = quantities[tt.id] ?? 0;
+          const unitPrice = getEffectivePrice(tt)
           return {
             ticketTypeId: tt.id,
             quantity: qty,
-            unitPrice: Number(tt.price),
-            subtotal: Number(tt.price) * qty,
+            unitPrice,
+            subtotal: unitPrice * qty,
             attendee_details: (attendeeForms[tt.id] || []).map((a, i) => {
               if (buyForSelf && tt.id === firstSelectedTtId && i === 0) {
                 return { ...a, name: dbUser.name, email: dbUser.email, phone: dbUser.phone }
@@ -850,11 +1043,18 @@ export default function EventDetailPage() {
               <div className="lg:hidden">
                 <BookingCard
                   ticketTypes={ticketTypes} quantities={quantities} ownedTicketCounts={ownedTicketCounts} hasOwnershipData={hasOwnershipData} selectedItems={selectedItems}
-                  total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
+                  subtotal={subtotal} discountAmount={discountAmount} total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}
                   onBack={() => setStep('select')}
                   buyForSelf={buyForSelf} onSelfToggle={setBuyForSelf} currentUser={dbUser}
+                  nowMs={nowMs}
+                  promoInput={promoInput}
+                  onPromoInputChange={setPromoInput}
+                  onApplyPromo={() => { void validatePromoCode(promoInput, false) }}
+                  promoLoading={promoLoading}
+                  promoError={promoError}
+                  appliedPromo={appliedPromo}
                 />
               </div>
             </div>
@@ -864,11 +1064,18 @@ export default function EventDetailPage() {
               <div className="sticky top-20">
                 <BookingCard
                   ticketTypes={ticketTypes} quantities={quantities} ownedTicketCounts={ownedTicketCounts} hasOwnershipData={hasOwnershipData} selectedItems={selectedItems}
-                  total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
+                  subtotal={subtotal} discountAmount={discountAmount} total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}
                   onBack={() => setStep('select')}
                   buyForSelf={buyForSelf} onSelfToggle={setBuyForSelf} currentUser={dbUser}
+                  nowMs={nowMs}
+                  promoInput={promoInput}
+                  onPromoInputChange={setPromoInput}
+                  onApplyPromo={() => { void validatePromoCode(promoInput, false) }}
+                  promoLoading={promoLoading}
+                  promoError={promoError}
+                  appliedPromo={appliedPromo}
                 />
               </div>
             </div>

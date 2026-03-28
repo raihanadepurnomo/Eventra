@@ -19,6 +19,8 @@ const EODashboardPage = lazy(() => import('@/pages/EODashboardPage'))
 const EOEventsPage = lazy(() => import('@/pages/EOEventsPage'))
 const EOCreateEventPage = lazy(() => import('@/pages/EOCreateEventPage'))
 const EOEventDetailPage = lazy(() => import('@/pages/EOEventDetailPage'))
+const EOPromoEventsPage = lazy(() => import('./pages/EOPromoEventsPage'))
+const EOPromosPage = lazy(() => import('@/pages/EOPromosPage'))
 const AdminDashboardPage = lazy(() => import('@/pages/AdminDashboardPage'))
 const AdminEOsPage = lazy(() => import('@/pages/AdminEOsPage'))
 const AdminEventsPage = lazy(() => import('@/pages/AdminEventsPage'))
@@ -179,6 +181,26 @@ const eoEventDetailRoute = createRoute({
   component: () => (
     <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOEventDetailPage />
+    </AuthGuard>
+  ),
+})
+
+const eoPromoEventsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/eo/promos',
+  component: () => (
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
+      <EOPromoEventsPage />
+    </AuthGuard>
+  ),
+})
+
+const eoPromosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/eo/events/$id/promos',
+  component: () => (
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
+      <EOPromosPage />
     </AuthGuard>
   ),
 })
@@ -377,6 +399,8 @@ const routeTree = rootRoute.addChildren([
   eoEventsRoute,
   eoCreateEventRoute,
   eoEventDetailRoute,
+  eoPromoEventsRoute,
+  eoPromosRoute,
   eoQRScannerRoute,
   eoAttendeesRoute,
   eoReportsRoute,

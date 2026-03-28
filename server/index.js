@@ -17,6 +17,8 @@ import paymentRoutes from './routes/payments.js';
 import socialRoutes from './routes/social.js';
 import resaleRoutes from './routes/resale.js';
 import eoFinanceRoutes from './routes/eoFinance.js';
+import promoRoutes from './routes/promos.js';
+import ticketPricingPhaseRoutes from './routes/ticketPricingPhases.js';
 import pool from './db.js';
 
 const app = express();
@@ -49,6 +51,8 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/resale', resaleRoutes);
 app.use('/api/eo', eoFinanceRoutes);
+app.use('/api', promoRoutes);
+app.use('/api/ticket-pricing-phases', ticketPricingPhaseRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
