@@ -35,6 +35,10 @@ export default function ProfileSettingsPage() {
   }, [dbUser])
 
   const handleSaveUsername = async () => {
+    if (!dbUser?.isEmailVerified) {
+      toast.error('Verifikasikan email anda terlebih dahulu')
+      return
+    }
     if (!isUsernameValid || username === dbUser?.username) return
     setSavingUsername(true)
     try {
@@ -106,6 +110,16 @@ export default function ProfileSettingsPage() {
                   <div>
                     <p className="font-semibold mb-0.5">Aturan Ganti Username</p>
                     <p>Username hanya bisa diganti 1x per 30 hari.</p>
+                  </div>
+                </div>
+              )}
+
+              {dbUser?.isEmailVerified === false && (
+                <div className="flex items-start gap-3 text-sm bg-amber-50 text-amber-700 p-3 rounded-lg border border-amber-200">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold mb-0.5">Email Belum Terverifikasi</p>
+                    <p>Klaim username hanya bisa dilakukan setelah email terverifikasi.</p>
                   </div>
                 </div>
               )}

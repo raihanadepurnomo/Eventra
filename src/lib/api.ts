@@ -1,5 +1,17 @@
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
+export class ApiHttpError extends Error {
+  status: number;
+  data: any;
+
+  constructor(message: string, status: number, data: any) {
+    super(message);
+    this.name = 'ApiHttpError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
 function getToken(): string | null {
   return localStorage.getItem('eventra_token');
 }
@@ -54,7 +66,10 @@ async function request<T>(method: string, path: string, body?: any): Promise<T> 
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    const message = err.detail
+      ? `${err.error || `HTTP ${res.status}`} (${err.detail})`
+      : (err.error || `HTTP ${res.status}`);
+    throw new ApiHttpError(message, res.status, err);
   }
 
   return res.json();

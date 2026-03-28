@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 
 import authRoutes from './routes/auth.js';
+import otpRoutes from './routes/otp.js';
 import userRoutes from './routes/users.js';
 import eventRoutes from './routes/events.js';
 import ticketTypeRoutes from './routes/ticketTypes.js';
@@ -36,6 +37,7 @@ app.use('/receipts', express.static(path.join(process.cwd(), '..', 'public', 're
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', otpRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/ticket-types', ticketTypeRoutes);

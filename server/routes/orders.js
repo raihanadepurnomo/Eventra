@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import pool from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireVerifiedEmail } from '../middleware/auth.js';
+import { sendOrderExpiredEmail } from '../lib/transactionalEmails.js';
 
 const router = Router();
 
@@ -76,9 +77,13 @@ router.post('/expire', async (req, res) => {
       }
 
       await pool.query(
-        `UPDATE orders SET status = 'CANCELLED' WHERE id IN (?)`,
+        `UPDATE orders SET status = 'EXPIRED' WHERE id IN (?)`,
         [orderIds]
       );
+
+      for (const order of expiredOrders) {
+        await sendOrderExpiredEmail(pool, order.id, 'expired');
+      }
     }
     
     res.json({ expired: expiredOrders.length });
@@ -114,7 +119,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // POST /api/orders
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { id, total_amount, status, expired_at, items } = req.body;
     const orderId = id || `ord_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;

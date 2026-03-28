@@ -78,6 +78,7 @@ CREATE TABLE `events` (
   `start_date` text DEFAULT NULL,
   `end_date` text DEFAULT NULL,
   `status` text DEFAULT NULL,
+  `is_resale_allowed` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` text DEFAULT NULL,
   `updated_at` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -86,8 +87,8 @@ CREATE TABLE `events` (
 -- Dumping data for table `events`
 --
 
-INSERT INTO `events` (`id`, `eo_profile_id`, `title`, `description`, `category`, `banner_image`, `location`, `location_url`, `start_date`, `end_date`, `status`, `created_at`, `updated_at`) VALUES
-('2b15839b-52a6-4aac-849a-e501caf38e78', 'eo_f4c0b23a', 'Makan Besar', 'Makan Makan', 'Festival', '/banner-image/event_1774682840529.png', 'JCC', 'https://share.google/RcX8nlLQdwjGrEO2w', '2026-04-03T07:26:00.000Z', '2026-04-06T07:26:00.000Z', 'PUBLISHED', '2026-03-28 07:27:20', '2026-03-28 07:27:20');
+INSERT INTO `events` (`id`, `eo_profile_id`, `title`, `description`, `category`, `banner_image`, `location`, `location_url`, `start_date`, `end_date`, `status`, `is_resale_allowed`, `created_at`, `updated_at`) VALUES
+('2b15839b-52a6-4aac-849a-e501caf38e78', 'eo_f4c0b23a', 'Makan Besar', 'Makan Makan', 'Festival', '/banner-image/event_1774682840529.png', 'JCC', 'https://share.google/RcX8nlLQdwjGrEO2w', '2026-04-03T07:26:00.000Z', '2026-04-06T07:26:00.000Z', 'PUBLISHED', 0, '2026-03-28 07:27:20', '2026-03-28 07:27:20');
 
 -- --------------------------------------------------------
 
@@ -177,6 +178,22 @@ CREATE TABLE `order_items` (
 INSERT INTO `order_items` (`id`, `order_id`, `ticket_type_id`, `quantity`, `unit_price`, `subtotal`, `attendee_details`) VALUES
 ('oi_4f1ff8ad', '2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]'),
 ('oi_6ab7d31c', '1dca4348-afeb-4cf7-998e-33dea633acdf', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"Raihan Ade Purnomo\",\"email\":\"raihanadepurnomo123@gmail.com\",\"phone\":\"081273284284\"}]');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `otp_codes`
+--
+
+CREATE TABLE `otp_codes` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `user_id` varchar(255) NOT NULL,
+  `code` varchar(10) NOT NULL,
+  `type` enum('verify_email','reset_password') NOT NULL,
+  `is_used` tinyint(1) NOT NULL DEFAULT 0,
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -377,6 +394,8 @@ CREATE TABLE `users` (
   `avatar_url` text DEFAULT NULL,
   `phone` text DEFAULT NULL,
   `phone_verified` int(11) DEFAULT NULL,
+  `auth_provider` varchar(20) DEFAULT 'email',
+  `is_email_verified` tinyint(1) DEFAULT 0,
   `metadata` text DEFAULT NULL,
   `username` varchar(50) DEFAULT NULL,
   `username_changed_at` datetime DEFAULT NULL,
@@ -387,11 +406,11 @@ CREATE TABLE `users` (
 -- Dumping data for table `users`
 --
 
-INSERT INTO `users` (`id`, `email`, `name`, `image`, `role`, `created_at`, `updated_at`, `email_verified`, `password_hash`, `display_name`, `avatar_url`, `phone`, `phone_verified`, `metadata`, `username`, `username_changed_at`, `is_profile_public`) VALUES
-('user_3db2858d60f4', 'superadmin@eventra.com', 'Super Admin', NULL, 'SUPER_ADMIN', '2026-03-27 16:46:30', '2026-03-27 16:46:30', 1, '$2b$10$4S9llAZh56x2m3lvf/cMtObxq3UtGfk3LqfT3ffpEx0R8ntL6IOOO', NULL, NULL, NULL, 0, NULL, NULL, NULL, 1),
-('user_6dd3e1bcc9d9', 'raihanadepurnomo123@gmail.com', 'Raihan Ade Purnomo', '/user-photo/avatar_user_6dd3e1bcc9d9_1774682607254.png', 'BUYER', '2026-03-28 07:11:24', '2026-03-28 07:24:08', 1, NULL, NULL, NULL, '081273284284', 0, NULL, 'raihan', '2026-03-28 07:23:43', 1),
-('user_9c30441f5fa3', 'zeruel@gmail.com', 'zeruel', NULL, 'BUYER', '2026-03-28 07:29:15', '2026-03-28 07:29:32', 0, '$2b$10$UWODuIOiEP9IFo0JLgWnIedh0zGZ4beVP4Cm/UwbG5bWBCBqj8DmC', NULL, NULL, '098765671823', 0, NULL, 'zeruel', '2026-03-28 07:29:23', 1),
-('user_cc3791e11c01', 'azriel@gmail.com', 'azriel', NULL, 'EO', '2026-03-28 07:24:49', '2026-03-28 07:25:06', 0, '$2b$10$lMoVtY/zX4yk10pKj/QdV.W5VWJ6SzF7UhbugRdvbImJvdBGR1Fxm', NULL, NULL, '081267346382', 0, NULL, NULL, NULL, 1);
+INSERT INTO `users` (`id`, `email`, `name`, `image`, `role`, `created_at`, `updated_at`, `email_verified`, `password_hash`, `display_name`, `avatar_url`, `phone`, `phone_verified`, `auth_provider`, `is_email_verified`, `metadata`, `username`, `username_changed_at`, `is_profile_public`) VALUES
+('user_3db2858d60f4', 'superadmin@eventra.com', 'Super Admin', NULL, 'SUPER_ADMIN', '2026-03-27 16:46:30', '2026-03-27 16:46:30', 1, '$2b$10$4S9llAZh56x2m3lvf/cMtObxq3UtGfk3LqfT3ffpEx0R8ntL6IOOO', NULL, NULL, NULL, 0, 'email', 1, NULL, NULL, NULL, 1),
+('user_6dd3e1bcc9d9', 'raihanadepurnomo123@gmail.com', 'Raihan Ade Purnomo', '/user-photo/avatar_user_6dd3e1bcc9d9_1774682607254.png', 'BUYER', '2026-03-28 07:11:24', '2026-03-28 07:24:08', 1, NULL, NULL, NULL, '081273284284', 0, 'google', 1, NULL, 'raihan', '2026-03-28 07:23:43', 1),
+('user_9c30441f5fa3', 'zeruel@gmail.com', 'zeruel', NULL, 'BUYER', '2026-03-28 07:29:15', '2026-03-28 07:29:32', 0, '$2b$10$UWODuIOiEP9IFo0JLgWnIedh0zGZ4beVP4Cm/UwbG5bWBCBqj8DmC', NULL, NULL, '098765671823', 0, 'email', 0, NULL, 'zeruel', '2026-03-28 07:29:23', 1),
+('user_cc3791e11c01', 'azriel@gmail.com', 'azriel', NULL, 'EO', '2026-03-28 07:24:49', '2026-03-28 07:25:06', 0, '$2b$10$lMoVtY/zX4yk10pKj/QdV.W5VWJ6SzF7UhbugRdvbImJvdBGR1Fxm', NULL, NULL, '081267346382', 0, 'email', 0, NULL, NULL, NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -494,6 +513,14 @@ ALTER TABLE `orders`
 --
 ALTER TABLE `order_items`
   ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `otp_codes`
+--
+ALTER TABLE `otp_codes`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_otp_user_type_created` (`user_id`,`type`,`created_at`),
+  ADD KEY `idx_otp_lookup` (`user_id`,`code`,`type`,`is_used`,`expires_at`);
 
 --
 -- Indexes for table `password_reset_tokens`
@@ -604,6 +631,12 @@ ALTER TABLE `seat_social_profiles`
   ADD CONSTRAINT `seat_social_profiles_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `otp_codes`
+--
+ALTER TABLE `otp_codes`
+  ADD CONSTRAINT `otp_codes_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `seller_balances`
 --
 ALTER TABLE `seller_balances`
@@ -623,6 +656,12 @@ ALTER TABLE `waves`
 ALTER TABLE `withdrawals`
   ADD CONSTRAINT `withdrawals_ibfk_1` FOREIGN KEY (`seller_balance_id`) REFERENCES `seller_balances` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `withdrawals_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- AUTO_INCREMENT for dumped tables
+--
+ALTER TABLE `otp_codes`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

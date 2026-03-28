@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import pool from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireVerifiedEmail } from '../middleware/auth.js';
 import midtransClient from 'midtrans-client';
 import multer from 'multer';
 import path from 'path';
@@ -103,7 +103,7 @@ router.get('/listings', async (req, res) => {
 });
 
 // POST /api/resale/listings
-router.post('/listings', authenticateToken, async (req, res) => {
+router.post('/listings', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { ticket_id, asking_price, note } = req.body;
     
@@ -113,7 +113,7 @@ router.post('/listings', authenticateToken, async (req, res) => {
 
     // 1. Validasi Tiket
     const [tickets] = await pool.query(
-      `SELECT t.*, tt.price as original_price, tt.sale_end_date, e.start_date
+      `SELECT t.*, tt.price as original_price, tt.sale_end_date, e.start_date, e.is_resale_allowed
        FROM tickets t
        JOIN ticket_types tt ON t.ticket_type_id = tt.id
        JOIN events e ON tt.event_id = e.id
@@ -123,6 +123,11 @@ router.post('/listings', authenticateToken, async (req, res) => {
 
     if (tickets.length === 0) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
     const ticket = tickets[0];
+    
+    // Validasi apakah EO mengizinkan resale untuk event ini
+    if (!ticket.is_resale_allowed) {
+      return res.status(403).json({ error: 'EO tidak mengizinkan resale untuk event ini' });
+    }
 
     if (ticket.status !== 'ACTIVE') return res.status(400).json({ error: 'Tiket harus berstatus ACTIVE' });
     
@@ -200,7 +205,7 @@ router.delete('/listings/:id', authenticateToken, async (req, res) => {
 });
 
 // POST /api/resale/listings/:listingId/buy
-router.post('/listings/:id/buy', authenticateToken, async (req, res) => {
+router.post('/listings/:id/buy', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const [listings] = await pool.query(`SELECT * FROM resale_listings WHERE id = ? AND status = 'OPEN'`, [req.params.id]);
     if (listings.length === 0) return res.status(404).json({ error: 'Listing tidak tersedia' });
@@ -352,7 +357,7 @@ router.get('/balance', authenticateToken, async (req, res) => {
 });
 
 // POST /api/resale/balance/withdraw
-router.post('/balance/withdraw', authenticateToken, async (req, res) => {
+router.post('/balance/withdraw', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { amount, bank_name, account_number, account_name } = req.body;
 

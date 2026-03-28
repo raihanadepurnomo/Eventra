@@ -132,6 +132,24 @@ export default function BuyerProfilePage() {
   const usedTickets = tickets.filter((t) => Number(t.isUsed) > 0)
   const avatarLetter = (currentName || dbUser?.email || 'U')[0].toUpperCase()
 
+  function promptVerifyEmail() {
+    if (!dbUser?.email) return
+
+    toast.action({
+      message: 'Harap verifikasi email terlebih dahulu. Lanjut ke halaman verifikasi?',
+      confirmLabel: 'Ya, verifikasi',
+      cancelLabel: 'Tidak',
+      onConfirm: () => {
+        const q = new URLSearchParams({
+          email: dbUser.email,
+          type: 'verify_email',
+          from: 'profile',
+        })
+        window.location.href = `/verify-otp?${q.toString()}`
+      },
+    })
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar />
@@ -201,7 +219,29 @@ export default function BuyerProfilePage() {
                 )}
                 <div>
                   <Label className="text-xs text-muted-foreground">Email</Label>
-                  <p className="text-sm text-foreground mt-0.5">{dbUser?.email}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-sm text-foreground">{dbUser?.email}</p>
+                    {dbUser?.isEmailVerified ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[11px] font-medium">
+                        <Check size={10} />
+                        Email terverifikasi
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-medium">
+                        <X size={10} />
+                        Belum verifikasi
+                      </span>
+                    )}
+                  </div>
+                  {!dbUser?.isEmailVerified && dbUser?.email && (
+                    <button
+                      type="button"
+                      onClick={promptVerifyEmail}
+                      className="mt-1 text-xs text-accent hover:underline font-medium"
+                    >
+                      Verifikasi sekarang
+                    </button>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Username</Label>

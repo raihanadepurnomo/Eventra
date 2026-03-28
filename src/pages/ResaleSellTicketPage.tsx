@@ -10,12 +10,14 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { api } from '@/lib/api'
 import { mapTicket, mapTicketType, mapEvent } from '@/lib/mappers'
+import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatIDR } from '@/lib/utils'
 import type { Ticket, TicketType, Event } from '@/types'
 
 export default function ResaleSellTicketPage() {
   const { ticketId } = useParams({ from: '/dashboard/tickets/$ticketId/sell' })
   const navigate = useNavigate()
+  const { dbUser } = useAuth()
   
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [ticketType, setTicketType] = useState<TicketType | null>(null)
@@ -59,8 +61,30 @@ export default function ResaleSellTicketPage() {
   const platformFee = Math.round(askingPrice * 0.05)
   const sellerReceives = askingPrice - platformFee
 
+  function promptVerifyEmail() {
+    if (!dbUser?.email) {
+      toast.error('Harap login terlebih dahulu')
+      navigate({ to: '/login' })
+      return
+    }
+
+    toast.action({
+      message: 'Harap verifikasi email terlebih dahulu. Lanjut ke halaman verifikasi?',
+      confirmLabel: 'Ya, verifikasi',
+      cancelLabel: 'Tidak',
+      onConfirm: () => {
+        const q = new URLSearchParams({ email: dbUser.email, type: 'verify_email', from: 'profile' })
+        window.location.href = `/verify-otp?${q.toString()}`
+      },
+    })
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!dbUser?.isEmailVerified) {
+      promptVerifyEmail()
+      return
+    }
     if (!agree) {
       toast.error('Anda harus menyetujui syarat & ketentuan')
       return
@@ -210,6 +234,19 @@ export default function ResaleSellTicketPage() {
 
               {/* Agreement Section */}
               <section className="pt-4 border-t border-border space-y-4">
+                {dbUser && !dbUser.isEmailVerified && (
+                  <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs">
+                    Email Anda belum terverifikasi. {' '}
+                    <button
+                      type="button"
+                      onClick={promptVerifyEmail}
+                      className="font-semibold underline hover:no-underline"
+                    >
+                      Verifikasi sekarang
+                    </button>
+                    {' '}untuk bisa menjual tiket.
+                  </div>
+                )}
                 <label className="flex gap-3 cursor-pointer group">
                   <input 
                     type="checkbox" 
@@ -237,7 +274,7 @@ export default function ResaleSellTicketPage() {
                   <Button 
                     type="submit" 
                     className="flex-[2] bg-accent text-accent-foreground hover:bg-accent/90 h-11 font-bold shadow-lg shadow-accent/20"
-                    disabled={submitting}
+                    disabled={submitting || !dbUser?.isEmailVerified}
                   >
                     {submitting ? 'Memproses...' : 'Daftarkan Tiket'}
                   </Button>

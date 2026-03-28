@@ -5,7 +5,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../db.js';
-import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { authenticateToken, requireRole, requireVerifiedEmail } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -87,7 +87,7 @@ router.get('/username/check', async (req, res) => {
 });
 
 // PUT /api/users/username
-router.put('/username', authenticateToken, async (req, res) => {
+router.put('/username', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { username } = req.body;
     if (!username) return res.status(400).json({ error: 'Username wajib diisi' });

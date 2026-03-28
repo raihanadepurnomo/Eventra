@@ -9,17 +9,27 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/lib/api'
 import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapUser } from '@/lib/mappers'
 import { formatDate } from '@/lib/utils'
-import { FUNCTIONS } from '@/lib/functions'
 import type { EOProfile, User } from '@/types'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 
 type TabVal = 'all' | 'PENDING' | 'ACTIVE' | 'SUSPENDED'
 interface EnrichedEO { profile: EOProfile; user: User | null }
 
+const REJECTION_REASON_OPTIONS = [
+  { value: 'DOCS_INCOMPLETE', label: 'Dokumen belum lengkap' },
+  { value: 'DATA_MISMATCH', label: 'Data tidak sesuai' },
+  { value: 'POLICY_VIOLATION', label: 'Tidak memenuhi kebijakan platform' },
+  { value: 'ACCOUNT_REVIEW', label: 'Perlu peninjauan akun lebih lanjut' },
+  { value: 'OTHER', label: 'Alasan operasional lainnya' },
+]
+
+const DEFAULT_REJECTION_REASON = REJECTION_REASON_OPTIONS[0].value
+
 export default function AdminEOsPage() {
   const [eos, setEOs] = useState<EnrichedEO[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TabVal>('all')
+  const [rejectionReasonByProfileId, setRejectionReasonByProfileId] = useState<Record<string, string>>({})
 
   useEffect(() => { load() }, [])
 
@@ -44,23 +54,26 @@ export default function AdminEOsPage() {
     }
   }
 
-  async function notifyEO(profileId: string, approved: boolean) {
-    try {
-      const authToken = await localStorage.getItem('eventra_token')
-      await fetch(FUNCTIONS.notifyEOApproved, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ eoProfileId: profileId, approved }),
-      })
-    } catch { /* non-blocking */ }
+  function getSelectedRejectionReason(profileId: string) {
+    return rejectionReasonByProfileId[profileId] || DEFAULT_REJECTION_REASON
   }
 
-  async function updateStatus(profileId: string, status: 'ACTIVE' | 'SUSPENDED' | 'PENDING') {
-    await api.put(`/eo-profiles/${profileId}`, { status })
+  async function updateStatus(profileId: string, status: 'ACTIVE' | 'SUSPENDED' | 'PENDING', rejectionReasonCode?: string) {
+    const payload: Record<string, string> = { status }
+    if (status === 'SUSPENDED') {
+      payload.rejectionReasonCode = rejectionReasonCode || DEFAULT_REJECTION_REASON
+    }
+
+    await api.put(`/eo-profiles/${profileId}`, payload)
     setEOs((prev) => prev.map((e) => e.profile.id === profileId ? { ...e, profile: { ...e.profile, status } } : e))
+
+    if (status === 'SUSPENDED') {
+      const selected = REJECTION_REASON_OPTIONS.find((opt) => opt.value === (rejectionReasonCode || DEFAULT_REJECTION_REASON))
+      toast.success(`Status EO diubah ke ${status} (${selected?.label || 'alasan default'})`)
+      return
+    }
+
     toast.success(`Status EO diubah ke ${status}`)
-    if (status === 'ACTIVE') notifyEO(profileId, true)
-    if (status === 'SUSPENDED') notifyEO(profileId, false)
   }
 
   const filtered = tab === 'all' ? eos : eos.filter((e) => e.profile.status === tab)
@@ -123,9 +136,30 @@ export default function AdminEOsPage() {
                                   </Button>
                                 )}
                                 {profile.status !== 'SUSPENDED' && (
-                                  <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => updateStatus(profile.id, 'SUSPENDED')}>
-                                    <PauseCircle size={12} className="mr-1" /> Tangguhkan
-                                  </Button>
+                                  <>
+                                    <select
+                                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                                      value={getSelectedRejectionReason(profile.id)}
+                                      onChange={(e) => {
+                                        const nextReason = e.target.value
+                                        setRejectionReasonByProfileId((prev) => ({ ...prev, [profile.id]: nextReason }))
+                                      }}
+                                    >
+                                      {REJECTION_REASON_OPTIONS.map((reason) => (
+                                        <option key={reason.value} value={reason.value}>
+                                          {reason.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-destructive"
+                                      onClick={() => updateStatus(profile.id, 'SUSPENDED', getSelectedRejectionReason(profile.id))}
+                                    >
+                                      <PauseCircle size={12} className="mr-1" /> Tangguhkan
+                                    </Button>
+                                  </>
                                 )}
                                 {profile.status !== 'PENDING' && profile.status !== 'ACTIVE' && (
                                   <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => updateStatus(profile.id, 'PENDING')}>

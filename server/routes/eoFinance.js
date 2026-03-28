@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import pool from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireVerifiedEmail } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -81,7 +81,7 @@ router.get('/withdrawals', authenticateToken, async (req, res) => {
 });
 
 // POST /api/eo/withdraw
-router.post('/withdraw', authenticateToken, async (req, res) => {
+router.post('/withdraw', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
     const { amount, bank_name, account_number, account_name, balance_id } = req.body;
     if (amount < 50000) return res.status(400).json({ error: 'Minimal pencairan Rp 50.000' });

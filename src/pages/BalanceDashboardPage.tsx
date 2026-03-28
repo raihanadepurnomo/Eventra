@@ -32,6 +32,16 @@ export default function BalanceDashboardPage() {
     if (dbUser) loadData()
   }, [dbUser])
 
+  function redirectToVerifyEmail() {
+    if (!dbUser?.email) {
+      toast.error('Harap login terlebih dahulu')
+      return
+    }
+
+    const q = new URLSearchParams({ email: dbUser.email, type: 'verify_email', from: 'profile' })
+    window.location.href = `/verify-otp?${q.toString()}`
+  }
+
   async function loadData() {
     setLoading(true)
     try {
@@ -49,6 +59,10 @@ export default function BalanceDashboardPage() {
 
   async function handleWithdraw(e: React.FormEvent) {
     e.preventDefault()
+    if (!dbUser?.isEmailVerified) {
+      redirectToVerifyEmail()
+      return
+    }
     const withdrawAmount = Number(amount)
     if (withdrawAmount < 50000) {
       toast.error('Minimal pencairan adalah Rp 50.000')
@@ -158,10 +172,23 @@ export default function BalanceDashboardPage() {
                   <Button 
                     className="w-full bg-accent text-accent-foreground hover:bg-accent/90 font-bold h-11"
                     onClick={() => setShowWithdrawForm(true)}
-                    disabled={!balance || balance.balance < 50000}
+                    disabled={!balance || balance.balance < 50000 || !dbUser?.isEmailVerified}
                   >
                      Ajukan Pencairan
                   </Button>
+
+                  {dbUser && !dbUser.isEmailVerified && (
+                    <p className="text-[11px] text-amber-700 text-center">
+                      Verifikasi email dulu untuk menarik saldo.{' '}
+                      <button
+                        type="button"
+                        className="underline font-semibold"
+                        onClick={redirectToVerifyEmail}
+                      >
+                        Verifikasi sekarang
+                      </button>
+                    </p>
+                  )}
                   
                   {balance && balance.balance < 50000 && (
                     <p className="text-[10px] text-center text-muted-foreground italic">
@@ -261,7 +288,7 @@ export default function BalanceDashboardPage() {
                 <Button 
                    type="submit" 
                    className="bg-accent text-accent-foreground font-bold"
-                   disabled={submitting}
+                   disabled={submitting || !dbUser?.isEmailVerified}
                 >
                    {submitting ? 'Memproses...' : 'Ajukan Pencairan'}
                 </Button>

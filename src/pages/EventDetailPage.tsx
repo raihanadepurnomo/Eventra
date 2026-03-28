@@ -285,18 +285,22 @@ export default function EventDetailPage() {
         tts.forEach((t) => { initQty[t.id] = 0 })
         setQuantities(initQty)
 
-        // Load resale listings
-        const resaleListingsRaw = await api.get<Record<string, unknown>[]>(`/resale/listings?event_id=${id}`)
-        const resaleResults: ResaleTicket[] = []
-        for (const rRaw of resaleListingsRaw) {
-          const l = mapResaleListing(rRaw)
-          resaleResults.push({ 
-            listing: l, 
-            ticketTypeName: l.ticketTypeName || 'Tiket', 
-            price: Number(l.askingPrice) 
-          })
+        // Load resale listings if allowed
+        if (ev.isResaleAllowed) {
+          const resaleListingsRaw = await api.get<Record<string, unknown>[]>(`/resale/listings?event_id=${id}`)
+          const resaleResults: ResaleTicket[] = []
+          for (const rRaw of resaleListingsRaw) {
+            const l = mapResaleListing(rRaw)
+            resaleResults.push({ 
+              listing: l, 
+              ticketTypeName: l.ticketTypeName || 'Tiket', 
+              price: Number(l.askingPrice) 
+            })
+          }
+          setResaleTickets(resaleResults)
+        } else {
+          setResaleTickets([])
         }
-        setResaleTickets(resaleResults)
       } catch {
         navigate({ to: '/events' })
       } finally {
@@ -351,8 +355,34 @@ export default function EventDetailPage() {
   const total = selectedItems.reduce((sum, t) => sum + Number(t.price) * (quantities[t.id] ?? 0), 0)
   const totalQty = selectedItems.reduce((sum, t) => sum + (quantities[t.id] ?? 0), 0)
 
+  function promptVerifyEmail() {
+    if (!dbUser?.email) {
+      toast.error('Harap login terlebih dahulu')
+      navigate({ to: '/login' })
+      return
+    }
+
+    toast.action({
+      message: 'Harap verifikasi email terlebih dahulu. Lanjut ke halaman verifikasi?',
+      confirmLabel: 'Ya, verifikasi',
+      cancelLabel: 'Tidak',
+      onConfirm: () => {
+        const q = new URLSearchParams({
+          email: dbUser.email,
+          type: 'verify_email',
+          from: 'profile',
+        })
+        window.location.href = `/verify-otp?${q.toString()}`
+      },
+    })
+  }
+
   async function handleBuy() {
     if (!isAuthenticated) { navigate({ to: '/login' }); return }
+    if (!dbUser?.isEmailVerified) {
+      promptVerifyEmail()
+      return
+    }
     if (totalQty === 0) { toast.error('Pilih minimal 1 tiket'); return }
     
     // Switch to details step if first click
@@ -502,6 +532,10 @@ export default function EventDetailPage() {
 
   async function handleBuyResale(listing: ResaleListing) {
     if (!isAuthenticated) { navigate({ to: '/login' }); return }
+    if (!dbUser?.isEmailVerified) {
+      promptVerifyEmail()
+      return
+    }
     setActiveResaleListing(listing)
     
     // Auto-fill if for self

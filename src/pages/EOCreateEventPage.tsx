@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 const CATEGORIES = ['Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
 
 interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; saleStartDate: string; saleEndDate: string }
-interface EventForm { title: string; category: string; description: string; bannerImage: string; bannerFile: File | null; startDate: string; endDate: string; location: string; locationUrl: string }
+interface EventForm { title: string; category: string; description: string; bannerImage: string; bannerFile: File | null; startDate: string; endDate: string; location: string; locationUrl: string; isResaleAllowed: boolean }
 
 const defaultTicket = (): TicketForm => ({ name: '', description: '', price: '0', quota: '100', maxPerOrder: '5', saleStartDate: '', saleEndDate: '' })
 
@@ -46,7 +46,7 @@ export default function EOCreateEventPage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState<EventForm>({ title: '', category: '', description: '', bannerImage: '', bannerFile: null, startDate: '', endDate: '', location: '', locationUrl: '' })
+  const [form, setForm] = useState<EventForm>({ title: '', category: '', description: '', bannerImage: '', bannerFile: null, startDate: '', endDate: '', location: '', locationUrl: '', isResaleAllowed: false })
   const [tickets, setTickets] = useState<TicketForm[]>([defaultTicket()])
 
   function updateForm(field: keyof EventForm, val: any) {
@@ -104,7 +104,9 @@ export default function EOCreateEventPage() {
         bannerImage: undefined,
         location: form.location.trim(), locationUrl: form.locationUrl.trim() || undefined,
         startDate: new Date(form.startDate).toISOString(), endDate: new Date(form.endDate).toISOString(),
-        status: publish ? 'PUBLISHED' : 'DRAFT', createdAt: now, updatedAt: now,
+        status: publish ? 'PUBLISHED' : 'DRAFT', 
+        is_resale_allowed: form.isResaleAllowed,
+        createdAt: now, updatedAt: now,
       })
 
       if (form.bannerFile) {
@@ -196,6 +198,24 @@ export default function EOCreateEventPage() {
                 <h2 className="text-base font-semibold text-foreground">Jenis Tiket</h2>
                 <Button size="sm" variant="outline" onClick={addTicket}><Plus size={14} className="mr-1" /> Tambah Tiket</Button>
               </div>
+              
+              <div className="p-4 bg-muted/30 border border-border rounded-xl space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isResaleAllowed"
+                    className="h-4 w-4 rounded border-gray-300 text-accent focus:ring-accent"
+                    checked={form.isResaleAllowed}
+                    onChange={(e) => updateForm('isResaleAllowed', e.target.checked)}
+                  />
+                  <Label htmlFor="isResaleAllowed" className="font-medium cursor-pointer">Izinkan pembeli menjual kembali tiket (Resale)</Label>
+                </div>
+                <p className="text-xs text-muted-foreground pl-6">
+                  Jika diaktifkan, pembeli dapat mendaftarkan tiket mereka di marketplace resale platform ini. 
+                  Default: tidak dicentang (resale tidak diizinkan).
+                </p>
+              </div>
+
               {tickets.map((tt, idx) => (
                 <div key={idx} className="border border-border rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">

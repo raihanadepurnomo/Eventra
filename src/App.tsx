@@ -31,6 +31,8 @@ const BuyerProfilePage = lazy(() => import('@/pages/BuyerProfilePage'))
 const ProfileSettingsPage = lazy(() => import('@/pages/ProfileSettingsPage'))
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
+const VerifyOtpPage = lazy(() => import('@/pages/VerifyOtpPage'))
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'))
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'))
 const PublicProfilePage = lazy(() => import('@/pages/PublicProfilePage'))
 const SeatSocialPage = lazy(() => import('@/pages/SeatSocialPage'))
@@ -70,6 +72,18 @@ const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/register',
   component: () => <RegisterPage />,
+})
+
+const verifyOtpRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/verify-otp',
+  component: () => <VerifyOtpPage />,
+})
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/forgot-password',
+  component: () => <ForgotPasswordPage />,
 })
 
 const authCallbackRoute = createRoute({
@@ -133,7 +147,7 @@ const eoDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/dashboard',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EODashboardPage />
     </AuthGuard>
   ),
@@ -143,7 +157,7 @@ const eoEventsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/events',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOEventsPage />
     </AuthGuard>
   ),
@@ -153,7 +167,7 @@ const eoCreateEventRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/events/create',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOCreateEventPage />
     </AuthGuard>
   ),
@@ -163,7 +177,7 @@ const eoEventDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/events/$id',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOEventDetailPage />
     </AuthGuard>
   ),
@@ -173,7 +187,7 @@ const eoQRScannerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/scanner',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOQRScannerPage />
     </AuthGuard>
   ),
@@ -183,7 +197,7 @@ const eoAttendeesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/attendees',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOAttendeesPage />
     </AuthGuard>
   ),
@@ -193,7 +207,7 @@ const eoReportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/reports',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOReportsPage />
     </AuthGuard>
   ),
@@ -203,7 +217,7 @@ const eoFinanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/eo/finance',
   component: () => (
-    <AuthGuard roles={['EO']}>
+    <AuthGuard roles={['EO']} requireVerifiedEmailForEO>
       <EOFinancePage />
     </AuthGuard>
   ),
@@ -351,6 +365,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   registerRoute,
+  verifyOtpRoute,
+  forgotPasswordRoute,
   authCallbackRoute,
   eventsRoute,
   eventDetailRoute,
