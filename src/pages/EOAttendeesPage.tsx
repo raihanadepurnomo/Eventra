@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { toast } from '@/components/ui/toast'
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar'
 import { api } from '@/lib/api'
 import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapUser } from '@/lib/mappers'
@@ -29,6 +30,7 @@ export default function EOAttendeesPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [rows, setRows] = useState<AttendeeRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [search, setSearch] = useState('')
   const [filterEvent, setFilterEvent] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -108,7 +110,9 @@ export default function EOAttendeesPage() {
         const tt = firstItem ? ttMap.get(firstItem.ticketTypeId) : null
         const event = tt ? evMap.get(tt.eventId) || null : null
         const ticketTypeName = items.map(i => ttMap.get(i.ticketTypeId)?.name || '?').join(', ')
-        const totalQty = items.reduce((s, i) => s + i.quantity, 0)
+        const totalQty = tickets.length > 0
+          ? tickets.filter(t => t.status !== 'TRANSFERRED').reduce((s, t) => s + Number(t.quantity || 1), 0)
+          : items.reduce((s, i) => s + i.quantity, 0)
         // Only count as scanned if status is actually 'USED' (not 'TRANSFERRED' or others)
         const scannedCount = tickets.filter(t => t.status === 'USED').reduce((s, t) => s + (t.quantity || 1), 0)
         const isResaleOrder = orderId.startsWith('rord_')
@@ -177,6 +181,52 @@ export default function EOAttendeesPage() {
     return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><Clock size={10} /> Belum Scan</span>
   }
 
+  async function handleExportAttendees() {
+    if (!filterEvent || filterEvent === 'all') {
+      toast.error('Pilih event terlebih dahulu sebelum export.')
+      return
+    }
+
+    setExporting(true)
+    try {
+      const token = localStorage.getItem('eventra_token')
+      const response = await fetch(`/api/eo/events/${filterEvent}/attendees/export`, {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+
+      if (!response.ok) {
+        let message = 'Gagal export attendees.'
+        try {
+          const err = await response.json()
+          if (err?.error) message = err.error
+        } catch {}
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      const disposition = response.headers.get('content-disposition') || ''
+      const fallbackName = `attendees-${filterEvent}.xlsx`
+      const filenameMatch = disposition.match(/filename="?([^\";]+)"?/) || disposition.match(/filename\*=UTF-8''([^;]+)/)
+      const filename = decodeURIComponent(filenameMatch?.[1] || fallbackName)
+
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast.success('File attendee berhasil diexport.')
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal export attendees.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       <DashboardSidebar />
@@ -186,9 +236,14 @@ export default function EOAttendeesPage() {
             <h1 className="text-sm font-semibold text-foreground">Daftar Peserta</h1>
             {profile && <p className="text-xs text-muted-foreground">{profile.orgName}</p>}
           </div>
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={loadData}>
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleExportAttendees} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export Excel'}
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={loadData}>
+              Refresh
+            </Button>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 space-y-5">

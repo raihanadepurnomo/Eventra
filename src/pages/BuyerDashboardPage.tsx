@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Ticket, ShoppingBag, QrCode, Calendar, MapPin, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { Ticket, ShoppingBag, QrCode, Calendar, MapPin, Tag, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
@@ -10,7 +10,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/lib/api'
-import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapTicketPricingPhase } from '@/lib/mappers'
+import { mapEvent, mapTicketType, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapTicketPricingPhase } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatIDR, formatDateRange } from '@/lib/utils'
 import type { Ticket as TicketType, Order, Event, TicketType as TT, ResaleListing } from '@/types'
@@ -20,6 +20,7 @@ import { UsernameSetupBanner } from '@/components/profile/UsernameSetupBanner'
 import { SeatSocialBanner } from '@/components/social/SeatSocialBanner'
 
 const MIDTRANS_CLIENT_KEY = import.meta.env.VITE_MIDTRANS_CLIENT_KEY ?? ''
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 declare global {
   interface Window {
@@ -35,47 +36,61 @@ declare global {
 }
 
 function QRDisplay({ code }: { code: string }) {
+  return <QRDisplayMultiple codes={[code]} />
+}
+
+function QRDisplayMultiple({ codes }: { codes: string[] }) {
   const [open, setOpen] = useState(false)
-  const safeCode = code || ''
-  const short = safeCode.replace(/-/g, '').slice(0, 16)
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(safeCode)}`
-  const enlargeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(safeCode)}`
+  const uniqueCodes = Array.from(new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean)))
 
   return (
     <>
-      <div 
-        className="flex flex-col items-center justify-center shrink-0 w-24 gap-1.5 p-2 bg-muted/20 border-l border-border hover:bg-muted/40 transition-colors cursor-pointer group"
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 shrink-0"
         onClick={() => setOpen(true)}
       >
-        <div className="w-16 h-16 bg-white p-1 rounded border border-border group-hover:border-accent transition-colors">
-          <img src={qrUrl} alt="QR Code" className="w-full h-full object-cover" />
-        </div>
-        <span className="text-[9px] font-mono text-muted-foreground text-center break-all leading-none">{short}</span>
-        <button 
-          onClick={(e) => { e.stopPropagation(); setOpen(true) }}
-          className="text-[10px] text-accent hover:underline font-medium"
-        >
-          Perbesar
-        </button>
-      </div>
+        <QrCode size={13} className="mr-1" /> Lihat QR
+      </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md flex flex-col items-center justify-center p-8 bg-background">
-          <DialogTitle className="text-center font-bold text-lg mb-2 text-foreground">Scan E-Ticket</DialogTitle>
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-border">
-            <img src={enlargeUrl} alt="E-Ticket QR" className="w-64 h-64 object-contain" />
-          </div>
-          <p className="font-mono text-muted-foreground mt-4 text-xs text-center break-all px-4">{safeCode}</p>
-          <a 
-            href={enlargeUrl} 
-            target="_blank" rel="noopener noreferrer"
-            download={`Ticket-${short}.png`}
-            onClick={(e) => e.stopPropagation()}
-            className="mt-4 mb-4 text-sm text-accent hover:underline font-medium"
-          >
-            Unduh Gambar QR (HD)
-          </a>
-          <Button variant="outline" className="w-full" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>
+        <DialogContent className="sm:max-w-md p-5 bg-background">
+          <DialogTitle className="text-center font-bold text-lg text-foreground">QR E-Ticket</DialogTitle>
+
+          {uniqueCodes.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">QR tidak tersedia.</div>
+          ) : (
+            <div className="mt-3 max-h-[70vh] overflow-y-auto space-y-4 pr-1">
+              {uniqueCodes.map((qrCode, idx) => {
+                const short = qrCode.replace(/-/g, '').slice(0, 16)
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(qrCode)}`
+                return (
+                  <div key={`${qrCode}-${idx}`} className="rounded-xl border border-border bg-muted/10 p-3">
+                    {uniqueCodes.length > 1 && (
+                      <p className="text-xs font-semibold text-foreground mb-2">QR #{idx + 1}</p>
+                    )}
+                    <div className="bg-white p-3 rounded-lg border border-border flex items-center justify-center">
+                      <img src={qrUrl} alt={`QR Ticket ${idx + 1}`} className="w-56 h-56 object-contain" />
+                    </div>
+                    <p className="font-mono text-[11px] text-muted-foreground mt-2 text-center break-all">{qrCode}</p>
+                    <a
+                      href={qrUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={`Ticket-${short}.png`}
+                      className="mt-2 block text-center text-xs text-accent hover:underline font-medium"
+                    >
+                      Unduh QR
+                    </a>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <Button variant="outline" className="w-full mt-3" onClick={() => setOpen(false)}>
             Tutup
           </Button>
         </DialogContent>
@@ -84,11 +99,23 @@ function QRDisplay({ code }: { code: string }) {
   )
 }
 
+function sanitizeFilename(name: string) {
+  return String(name || 'ticket')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'ticket'
+}
+
 interface EnrichedTicket {
+  groupId: string
+  memberTicketIds: string[]
+  resaleListingIds: string[]
   ticket: TicketType
   ticketType: TT | null
   event: Event | null
   resaleListing: ResaleListing | null
+  qrCodes: string[]
   orderQty: number
   orderTotalPaid: number
   ticketSubtotalPaid: number
@@ -98,12 +125,97 @@ interface EnrichedTicket {
   promoDiscount: number
 }
 
+function hasEventEnded(event: Event | null): boolean {
+  if (!event?.endDate) return false
+  const endTs = new Date(event.endDate).getTime()
+  if (Number.isNaN(endTs)) return false
+  return endTs < Date.now()
+}
+
+function getEffectiveTicketStatus(ticket: TicketType, event: Event | null): string {
+  if (ticket.status === 'TRANSFERRED') return 'TRANSFERRED'
+  if (ticket.status === 'LISTED_FOR_RESALE') return 'LISTED_FOR_RESALE'
+  if (ticket.status === 'CANCELLED') return 'CANCELLED'
+  if (ticket.status === 'USED' || Number(ticket.isUsed) > 0) return 'USED'
+  if (ticket.status === 'ACTIVE' && hasEventEnded(event)) return 'EXPIRED'
+  return ticket.status || 'ACTIVE'
+}
+
+function getTicketDisplayStatus(enriched: EnrichedTicket): string {
+  return getEffectiveTicketStatus(enriched.ticket, enriched.event)
+}
+
 export default function BuyerDashboardPage() {
   const { dbUser, refreshUser } = useAuth()
   const [tickets, setTickets] = useState<EnrichedTicket[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [loadingTickets, setLoadingTickets] = useState(true)
   const [loadingOrders, setLoadingOrders] = useState(true)
+  const [ticketSearch, setTicketSearch] = useState('')
+  const [ticketStatusFilter, setTicketStatusFilter] = useState('ALL')
+  const [orderSearch, setOrderSearch] = useState('')
+  const [orderStatusFilter, setOrderStatusFilter] = useState('ALL')
+
+  const filteredTickets = useMemo(() => {
+    const q = ticketSearch.trim().toLowerCase()
+
+    return tickets.filter((enriched) => {
+      const status = getTicketDisplayStatus(enriched)
+      if (ticketStatusFilter !== 'ALL' && status !== ticketStatusFilter) {
+        return false
+      }
+
+      if (!q) return true
+
+      const attendeeText = Array.isArray(enriched.ticket.attendeeDetails)
+        ? (enriched.ticket.attendeeDetails as any[])
+            .map((a) => `${a?.name || ''} ${a?.email || ''} ${a?.phone || ''}`.trim())
+            .join(' ')
+        : ''
+
+      const haystack = [
+        enriched.groupId,
+        enriched.ticket.id,
+        enriched.ticket.orderId,
+        ...(enriched.memberTicketIds || []),
+        enriched.event?.title,
+        enriched.ticketType?.name,
+        status,
+        attendeeText,
+        ...(enriched.qrCodes || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(q)
+    })
+  }, [tickets, ticketSearch, ticketStatusFilter])
+
+  const filteredOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase()
+
+    return orders.filter((order) => {
+      if (orderStatusFilter !== 'ALL' && order.status !== orderStatusFilter) {
+        return false
+      }
+
+      if (!q) return true
+
+      const haystack = [
+        order.id,
+        order.status,
+        order.paymentMethod,
+        order.promoCode,
+        String(order.totalAmount ?? ''),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(q)
+    })
+  }, [orders, orderSearch, orderStatusFilter])
 
   // Load Snap script
   useEffect(() => {
@@ -127,13 +239,14 @@ export default function BuyerDashboardPage() {
     try {
       const rawTickets: any = await api.get(`/tickets?user_id=${dbUser.id}`)
       const ticketsMapped = rawTickets.map(mapTicket)
+
       const ttCache = new Map<string, TT | null>()
       const eventCache = new Map<string, Event | null>()
       const orderCache = new Map<string, Order | null>()
       const orderItemsCache = new Map<string, any[]>()
       const phaseNameCache = new Map<string, string | null>()
 
-      const enriched = await Promise.all(
+      const enrichedDraft = await Promise.all(
         ticketsMapped.map(async (t: TicketType) => {
           let ticketType: TT | null = null
           let event: Event | null = null
@@ -201,18 +314,27 @@ export default function BuyerDashboardPage() {
             }
           } catch { /* ignore */ }
 
-          const ticketSubtotalPaid = Number(
-            matchedItem?.subtotal ?? (Number(ticketType?.price ?? 0) * Number(t.quantity || 1))
-          )
+          const matchedItemQty = Math.max(1, Number(matchedItem?.quantity || 1))
+          const matchedItemSubtotal = Number(matchedItem?.subtotal || 0)
+          const defaultSubtotal = Number(ticketType?.price ?? 0) * Number(t.quantity || 1)
+          const perTicketSubtotal = matchedItemSubtotal > 0
+            ? (matchedItemSubtotal / matchedItemQty) * Math.max(1, Number(t.bundleTotal || 1) > 1 ? 1 : Number(t.quantity || 1))
+            : defaultSubtotal
+
+          const ticketSubtotalPaid = Number(perTicketSubtotal)
           const orderTotalPaid = Number(order?.totalAmount ?? ticketSubtotalPaid)
           const promoDiscount = Number(order?.discountAmount ?? 0)
           const usedPromo = promoDiscount > 0 || Boolean(order?.promoCodeId)
+          const effectiveStatus = getEffectiveTicketStatus(t, event)
+          const groupBaseKey = t.orderItemId || `${t.orderId}:${t.ticketTypeId}`
+          const ownQrCode = String(t.qrCode || '').trim()
 
           return {
             ticket: t,
             ticketType,
             event,
             resaleListing,
+            qrCodes: ownQrCode ? [ownQrCode] : [],
             orderQty: t.quantity,
             orderTotalPaid,
             ticketSubtotalPaid,
@@ -220,9 +342,74 @@ export default function BuyerDashboardPage() {
             pricingPhaseName,
             usedPromo,
             promoDiscount,
+            _groupBaseKey: groupBaseKey,
+            _effectiveStatus: effectiveStatus,
+            _ownQrCode: ownQrCode,
           }
         })
       )
+
+      const groupedMap = new Map<string, any>()
+
+      for (const row of enrichedDraft as any[]) {
+        const groupId = `${row._groupBaseKey}:${row._effectiveStatus}`
+        const attendeeRows = Array.isArray(row.ticket.attendeeDetails) ? row.ticket.attendeeDetails : []
+        const ownCode = String(row._ownQrCode || '').trim()
+        const ownListingId = row.resaleListing?.id ? String(row.resaleListing.id) : ''
+
+        if (!groupedMap.has(groupId)) {
+          groupedMap.set(groupId, {
+            ...row,
+            groupId,
+            memberTicketIds: [String(row.ticket.id)],
+            resaleListingIds: ownListingId ? [ownListingId] : [],
+            qrCodes: ownCode ? [ownCode] : [],
+            ticket: {
+              ...row.ticket,
+              quantity: Number(row.ticket.quantity || 1),
+              attendeeDetails: [...attendeeRows],
+            },
+          })
+          continue
+        }
+
+        const grouped = groupedMap.get(groupId)
+
+        grouped.memberTicketIds.push(String(row.ticket.id))
+        grouped.qrCodes = Array.from(new Set([...(grouped.qrCodes || []), ...(ownCode ? [ownCode] : [])]))
+
+        if (ownListingId && !grouped.resaleListingIds.includes(ownListingId)) {
+          grouped.resaleListingIds.push(ownListingId)
+        }
+
+        grouped.ticket.quantity = Number(grouped.ticket.quantity || 0) + Number(row.ticket.quantity || 1)
+        grouped.ticket.attendeeDetails = [
+          ...(Array.isArray(grouped.ticket.attendeeDetails) ? grouped.ticket.attendeeDetails : []),
+          ...attendeeRows,
+        ]
+
+        grouped.orderQty = Number(grouped.orderQty || 0) + Number(row.orderQty || 0)
+        grouped.ticketSubtotalPaid = Number(grouped.ticketSubtotalPaid || 0) + Number(row.ticketSubtotalPaid || 0)
+        grouped.orderTotalPaid = Math.max(Number(grouped.orderTotalPaid || 0), Number(row.orderTotalPaid || 0))
+        grouped.orderItemCount = Math.max(Number(grouped.orderItemCount || 0), Number(row.orderItemCount || 0))
+        grouped.usedPromo = Boolean(grouped.usedPromo || row.usedPromo)
+        grouped.promoDiscount = Math.max(Number(grouped.promoDiscount || 0), Number(row.promoDiscount || 0))
+
+        if (!grouped.resaleListing && row.resaleListing) {
+          grouped.resaleListing = row.resaleListing
+        }
+      }
+
+      const enriched = Array.from(groupedMap.values())
+        .map((row: any) => {
+          const { _groupBaseKey, _effectiveStatus, _ownQrCode, ...clean } = row
+          return clean
+        })
+        .sort((a: any, b: any) => {
+          const aTs = new Date(String(a.ticket?.createdAt || 0)).getTime()
+          const bTs = new Date(String(b.ticket?.createdAt || 0)).getTime()
+          return bTs - aTs
+        })
       setTickets(enriched)
     } finally {
       setLoadingTickets(false)
@@ -248,10 +435,25 @@ export default function BuyerDashboardPage() {
     }
   }
 
-  async function handleCancelResale(ticketId: string, listingId: string) {
+  async function handleCancelResale(listingIds: string[]) {
+    const ids = Array.from(new Set((listingIds || []).filter(Boolean)))
+    if (!ids.length) return
+
     try {
-      await api.delete(`/resale/listings/${listingId}`)
-      toast.success('Listing resale dibatalkan.')
+      const results = await Promise.allSettled(ids.map((id) => api.delete(`/resale/listings/${id}`)))
+      const successCount = results.filter((r) => r.status === 'fulfilled').length
+
+      if (successCount <= 0) {
+        toast.error('Gagal membatalkan listing.')
+        return
+      }
+
+      if (successCount < ids.length) {
+        toast.success(`${successCount} listing berhasil dibatalkan, sebagian gagal.`)
+      } else {
+        toast.success('Listing resale dibatalkan.')
+      }
+
       await loadTickets()
     } catch {
       toast.error('Gagal membatalkan listing.')
@@ -279,23 +481,45 @@ export default function BuyerDashboardPage() {
             </TabsList>
 
             <TabsContent value="tickets">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                  placeholder="Cari tiket, event, order, QR, peserta"
+                  className="sm:col-span-2"
+                />
+                <select
+                  value={ticketStatusFilter}
+                  onChange={(e) => setTicketStatusFilter(e.target.value)}
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="ALL">Semua Status Tiket</option>
+                  <option value="ACTIVE">Aktif</option>
+                  <option value="EXPIRED">Expired (Tidak Check-in)</option>
+                  <option value="LISTED_FOR_RESALE">Dijual</option>
+                  <option value="USED">Digunakan</option>
+                  <option value="TRANSFERRED">Telah Terjual</option>
+                  <option value="CANCELLED">Dibatalkan</option>
+                </select>
+              </div>
+
               {loadingTickets ? (
                 <div className="space-y-3">{[1,2,3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
-              ) : tickets.length === 0 ? (
+              ) : filteredTickets.length === 0 ? (
                 <div className="text-center py-20 border border-dashed border-border rounded-xl">
                   <Ticket className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                  <p className="font-semibold text-foreground mb-1">Belum ada tiket</p>
-                  <p className="text-sm text-muted-foreground">Beli tiket event favoritmu!</p>
+                  <p className="font-semibold text-foreground mb-1">Tiket tidak ditemukan</p>
+                  <p className="text-sm text-muted-foreground">Coba ubah kata kunci pencarian atau filter status.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {tickets.map((enriched) => (
+                  {filteredTickets.map((enriched) => (
                     <TicketCard
-                      key={enriched.ticket.id}
+                      key={enriched.groupId}
                       enriched={enriched}
                       onCancelResale={() => {
-                        if (enriched.resaleListing) {
-                          handleCancelResale(enriched.ticket.id, enriched.resaleListing.id)
+                        if (enriched.resaleListingIds.length > 0) {
+                          handleCancelResale(enriched.resaleListingIds)
                         }
                       }}
                     />
@@ -305,16 +529,37 @@ export default function BuyerDashboardPage() {
             </TabsContent>
 
             <TabsContent value="orders">
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Cari ID order, metode, status"
+                  className="sm:col-span-2"
+                />
+                <select
+                  value={orderStatusFilter}
+                  onChange={(e) => setOrderStatusFilter(e.target.value)}
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="ALL">Semua Status Transaksi</option>
+                  <option value="PENDING">Menunggu</option>
+                  <option value="PAID">Lunas</option>
+                  <option value="CANCELLED">Dibatalkan</option>
+                  <option value="EXPIRED">Kedaluwarsa</option>
+                  <option value="REFUNDED">Dikembalikan</option>
+                </select>
+              </div>
+
               {loadingOrders ? (
                 <div className="space-y-3">{[1,2,3].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>
-              ) : orders.length === 0 ? (
+              ) : filteredOrders.length === 0 ? (
                 <div className="text-center py-20 border border-dashed border-border rounded-xl">
                   <ShoppingBag className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                  <p className="font-semibold text-foreground mb-1">Belum ada pesanan</p>
+                  <p className="font-semibold text-foreground mb-1">Transaksi tidak ditemukan</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {orders.map((order) => <OrderRow key={order.id} order={order} reload={async () => { await loadOrders(); await loadTickets(); }} />)}
+                  {filteredOrders.map((order) => <OrderRow key={order.id} order={order} reload={async () => { await loadOrders(); await loadTickets(); }} />)}
                 </div>
               )}
             </TabsContent>
@@ -344,11 +589,70 @@ function TicketCard({ enriched, onCancelResale }: {
     pricingPhaseName,
     usedPromo,
     promoDiscount,
+    qrCodes,
   } = enriched
-  const displayPaidAmount = orderItemCount > 1 ? ticketSubtotalPaid : orderTotalPaid
+  const displayPaidAmount = ticketSubtotalPaid
   const isUsed = Number(ticket.isUsed) > 0
   const isListed = ticket.status === 'LISTED_FOR_RESALE'
+  const isResalePurchasedTicket = String(ticket.orderId || '').startsWith('rord_')
+  const ticketStatusForBadge = getEffectiveTicketStatus(ticket, event)
+  const bundleIndex = Number(ticket.bundleIndex || 1)
+  const bundleTotal = Number(ticket.bundleTotal || 1)
+  const isBundleTicket = bundleTotal > 1 || Boolean(ticketType?.isBundle)
   const [expanded, setExpanded] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+
+  async function handleDownloadTicketPdf() {
+    setDownloadingPdf(true)
+    try {
+      const token = localStorage.getItem('eventra_token')
+      const headers: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
+        : {}
+
+      const response = await fetch(
+        `${API_BASE_URL}/tickets/order/${encodeURIComponent(ticket.orderId)}/pdf?status=${encodeURIComponent(ticketStatusForBadge)}`,
+        {
+          method: 'GET',
+          headers,
+        }
+      )
+
+      if (!response.ok) {
+        let message = 'Gagal mengunduh PDF tiket.'
+        try {
+          const errData = await response.json()
+          message = errData?.error || message
+        } catch {
+          // ignore non-json error body
+        }
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+
+      const disposition = response.headers.get('content-disposition') || ''
+      const matched = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+      const fallbackName = `tickets-${sanitizeFilename(event?.title || ticket.orderId)}-${sanitizeFilename(ticket.orderId)}.pdf`
+      const rawFileName = matched?.[1] || matched?.[2] || fallbackName
+      const fileName = decodeURIComponent(String(rawFileName).replace(/['"]/g, ''))
+
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objectUrl)
+
+      toast.success('PDF tiket berhasil diunduh.')
+    } catch (err: any) {
+      toast.error(err?.message || 'Gagal mengunduh PDF tiket.')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
 
   return (
     <div className="flex items-stretch rounded-xl border border-border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -360,11 +664,14 @@ function TicketCard({ enriched, onCancelResale }: {
               <p className="text-sm font-semibold text-foreground truncate">
                 {event?.title ?? 'Event tidak ditemukan'}
               </p>
-              <StatusBadge status={isUsed ? 'USED' : ticket.status} />
+              <StatusBadge status={ticketStatusForBadge} />
             </div>
             <p className="text-xs text-muted-foreground">{ticketType?.name ?? 'Tiket'}</p>
+            {isBundleTicket && (
+              <p className="text-[11px] text-emerald-700 mt-1">{ticketType?.name || 'Paket'} — Paket {bundleIndex} dari {bundleTotal}</p>
+            )}
             <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg w-fit">
-              <span className="flex items-center gap-1.5"><Tag size={12} className="text-accent" /> <span className="font-bold text-foreground">{ticket.quantity} Tiket</span></span>
+              <span className="flex items-center gap-1.5"><Tag size={12} className="text-accent" /> <span className="font-bold text-foreground">{isBundleTicket ? `${ticket.quantity} Orang` : `${ticket.quantity} Tiket`}</span></span>
               <span className="w-px h-3 bg-border" />
               <span>Total Dibayar: <span className="font-mono font-bold text-foreground">{formatIDR(displayPaidAmount)}</span></span>
             </div>
@@ -415,7 +722,7 @@ function TicketCard({ enriched, onCancelResale }: {
                     <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
                       Subtotal tiket ini: <span className="font-semibold text-foreground">{formatIDR(ticketSubtotalPaid)}</span>
                     </span>
-                    {orderItemCount > 1 && (
+                    {(orderItemCount > 1 || orderTotalPaid > ticketSubtotalPaid) && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-background text-muted-foreground">
                         Total order: <span className="font-semibold text-foreground">{formatIDR(orderTotalPaid)}</span>
                       </span>
@@ -449,7 +756,7 @@ function TicketCard({ enriched, onCancelResale }: {
                     </div>
                   )}
 
-                  {ticket.status === 'ACTIVE' && !isUsed && event?.isResaleAllowed && (
+                  {ticketStatusForBadge === 'ACTIVE' && event?.isResaleAllowed && !isBundleTicket && !isResalePurchasedTicket && (
                     <Link to="/dashboard/tickets/$ticketId/sell" params={{ ticketId: ticket.id }}>
                       <button
                         className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline transition-colors"
@@ -459,7 +766,16 @@ function TicketCard({ enriched, onCancelResale }: {
                     </Link>
                   )}
 
-                  {ticket.status === 'ACTIVE' && !isUsed && event && (
+                  <button
+                    type="button"
+                    className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline transition-colors"
+                    onClick={handleDownloadTicketPdf}
+                    disabled={downloadingPdf}
+                  >
+                    <Download size={11} /> {downloadingPdf ? 'Membuat PDF...' : 'Download PDF Tiket Status Ini'}
+                  </button>
+
+                  {ticketStatusForBadge === 'ACTIVE' && event && (
                     <SeatSocialBanner
                       eventId={event.id}
                       ticketId={ticket.id}
@@ -468,7 +784,7 @@ function TicketCard({ enriched, onCancelResale }: {
                   )}
                 </div>
 
-                <QRDisplay code={ticket.qrCode} />
+                <QRDisplayMultiple codes={qrCodes.length > 0 ? qrCodes : [ticket.qrCode]} />
               </div>
             </div>
           </div>

@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/Label'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { toast } from '@/components/ui/toast'
 import { DashboardSidebar } from '@/components/layout/DashboardSidebar'
-import { api } from '@/lib/api'
+import { api, ApiHttpError } from '@/lib/api'
 import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapUser } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatDateRange } from '@/lib/utils'
@@ -16,10 +16,48 @@ import type { Ticket, TicketType, Event, EOProfile, Order, User } from '@/types'
 type ScanResult =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'valid'; ticket: Ticket; ticketType: TicketType; event: Event; order: Order; user: User | null; alreadyUsed: boolean }
+  | { status: 'valid'; ticket: Ticket; ticketType: TicketType; event: Event; order: Order | null; user: User | null; alreadyUsed: boolean }
   | { status: 'invalid'; message: string }
 
 type InputMode = 'manual' | 'camera'
+
+function normalizeScannedQrValue(raw: string): string {
+  const original = String(raw || '').trim()
+  if (!original) return ''
+
+  let decoded = original
+  try {
+    decoded = decodeURIComponent(original)
+  } catch {
+    decoded = original
+  }
+
+  const cleaned = decoded.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return ''
+
+  const qrToken = cleaned.match(/qr_[a-z0-9]+/i)
+  if (qrToken?.[0]) {
+    return qrToken[0]
+  }
+
+  try {
+    const url = new URL(cleaned)
+    const fromQuery = url.searchParams.get('qr_code') || url.searchParams.get('code') || url.searchParams.get('qr') || url.searchParams.get('ticket')
+    if (fromQuery) {
+      const fromQueryToken = String(fromQuery).match(/qr_[a-z0-9]+/i)
+      return (fromQueryToken?.[0] || String(fromQuery)).trim()
+    }
+
+    const fromPath = url.pathname.match(/qr_[a-z0-9]+/i)
+    if (fromPath?.[0]) {
+      return fromPath[0].trim()
+    }
+  } catch {
+    // ignore non-url values
+  }
+
+  return cleaned.split(' ')[0].trim()
+}
 
 export default function EOQRScannerPage() {
   const { dbUser } = useAuth()
@@ -32,6 +70,7 @@ export default function EOQRScannerPage() {
   const [marking, setMarking] = useState(false)
   const [loadingEvents, setLoadingEvents] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
+  const validatingRef = useRef(false)
 
   // Auto-focus input when switching to manual mode
   useEffect(() => {
@@ -61,79 +100,76 @@ export default function EOQRScannerPage() {
   }
 
   async function handleScan(code: string) {
-    const trimmed = code.trim()
-    if (!trimmed) return
+    const normalizedCode = normalizeScannedQrValue(code)
+    if (!normalizedCode) {
+      setResult({ status: 'invalid', message: 'Format kode QR tidak dikenali.' })
+      return
+    }
+
+    if (validatingRef.current) return
+    validatingRef.current = true
 
     setResult({ status: 'loading' })
     setQrInput('')
 
     try {
-      // Find ticket by QR code
-      const rawTickets: any = await api.get(`/tickets?qr_code=${trimmed}`)
-      const mappedTickets = rawTickets.map(mapTicket)
-      const ticket = mappedTickets[0]
+      const validatePath = selectedEventId !== 'all'
+        ? `/tickets/validate?qr_code=${encodeURIComponent(normalizedCode)}&event_id=${encodeURIComponent(selectedEventId)}`
+        : `/tickets/validate?qr_code=${encodeURIComponent(normalizedCode)}`
+
+      const validation: any = await api.get(validatePath)
+      const ticket = validation?.ticket ? mapTicket(validation.ticket) : null
+      const ticketType = validation?.ticket_type ? mapTicketType(validation.ticket_type) : null
+      const event = validation?.event ? mapEvent(validation.event) : null
+      const order = validation?.order ? mapOrder(validation.order) : null
+      const user = validation?.user ? mapUser(validation.user) : null
 
       if (!ticket) {
         setResult({ status: 'invalid', message: 'Tiket tidak ditemukan. QR code tidak valid.' })
         return
       }
-
-      // Get ticket type and event
-      const rawTT: any = await api.get(`/ticket-types/${ticket.ticketTypeId}`)
-      const ticketType = mapTicketType(rawTT)
       if (!ticketType) {
         setResult({ status: 'invalid', message: 'Tipe tiket tidak ditemukan.' })
         return
       }
-
-      const rawEvent: any = await api.get(`/events/${ticketType.eventId}`)
-      const event = mapEvent(rawEvent)
       if (!event) {
         setResult({ status: 'invalid', message: 'Data event tidak ditemukan.' })
         return
       }
 
-      // Verify this event belongs to current EO
-      if (profile && event.eoProfileId !== profile.id) {
-        setResult({ status: 'invalid', message: 'Tiket ini bukan untuk event Anda.' })
-        return
-      }
-
-      // Filter by selected event if specified
-      if (selectedEventId !== 'all' && event.id !== selectedEventId) {
-        setResult({ status: 'invalid', message: `Tiket ini bukan untuk event yang dipilih.` })
-        return
-      }
-
-      // Check ticket status
       if (ticket.status === 'CANCELLED') {
         setResult({ status: 'invalid', message: 'Tiket telah dibatalkan.' })
         return
       }
 
-      const rawOrder: any = await api.get(`/orders/${ticket.orderId}`)
-      const order = mapOrder(rawOrder)
+      if (ticket.status === 'LISTED_FOR_RESALE') {
+        setResult({
+          status: 'invalid',
+          message: 'Tiket sedang dijual di marketplace resale. Batalkan jual terlebih dahulu jika ingin menggunakan tiket ini.',
+        })
+        return
+      }
+
       const alreadyUsed = Number(ticket.isUsed) > 0
 
       // Handle Transferred (Seller) Status
       if (ticket.status === 'TRANSFERRED') {
         setResult({ 
           status: 'invalid', 
-          message: 'Tiket Pindah Tangan (Resale). Tiket ini sudah resmi dipindah tangankan via resale dan tidak dapat digunakan lagi oleh pemilik lama.' 
+          message: 'QR ini milik tiket yang sudah terjual via resale. QR milik penjual sudah tidak aktif; gunakan QR baru yang dimiliki pembeli.' 
         })
         return
       }
 
-      // Fetch ticket holder user info
-      let user: User | null = null
-      try {
-        const rawUser: any = await api.get(`/users/${ticket.userId}`)
-        user = mapUser(rawUser)
-      } catch { /* ignore */ }
-
       setResult({ status: 'valid', ticket, ticketType, event, order, user, alreadyUsed })
-    } catch {
-      setResult({ status: 'invalid', message: 'Terjadi kesalahan saat memvalidasi tiket.' })
+    } catch (err: unknown) {
+      if (err instanceof ApiHttpError) {
+        setResult({ status: 'invalid', message: err.message || 'Terjadi kesalahan saat memvalidasi tiket.' })
+      } else {
+        setResult({ status: 'invalid', message: 'Terjadi kesalahan saat memvalidasi tiket.' })
+      }
+    } finally {
+      validatingRef.current = false
     }
   }
 
@@ -141,16 +177,32 @@ export default function EOQRScannerPage() {
     if (result.status !== 'valid') return
     setMarking(true)
     try {
+      const nowIso = new Date().toISOString()
+      const attendeeRows = Array.isArray(result.ticket.attendeeDetails)
+        ? (result.ticket.attendeeDetails as any[]).map((attn) => ({
+            ...(attn || {}),
+            checkedInAt: nowIso,
+            checkedInBy: dbUser?.id || null,
+          }))
+        : []
+
       await api.put(`/tickets/${result.ticket.id}`, {
         isUsed: 1,
         status: 'USED',
-        usedAt: new Date().toISOString(),
+        usedAt: nowIso,
+        attendeeDetails: attendeeRows,
       })
       toast.success('Tiket berhasil divalidasi!')
       setResult({
         ...result,
         alreadyUsed: true,
-        ticket: { ...result.ticket, isUsed: true, status: 'USED' },
+        ticket: {
+          ...result.ticket,
+          isUsed: true,
+          status: 'USED',
+          usedAt: nowIso,
+          attendeeDetails: attendeeRows.length > 0 ? attendeeRows : result.ticket.attendeeDetails,
+        },
       })
     } catch {
       toast.error('Gagal menandai tiket.')
@@ -330,17 +382,25 @@ export default function EOQRScannerPage() {
                   
                   {result.ticket.attendeeDetails && Array.isArray(result.ticket.attendeeDetails) && (
                     <div className="pt-2 border-t border-border mt-2 space-y-2">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Daftar Nama Peserta</p>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        {result.alreadyUsed ? 'Nama yang Sudah Check-in' : 'Daftar Nama Peserta'}
+                      </p>
                       <div className="grid grid-cols-1 gap-1.5">
                         {(result.ticket.attendeeDetails as any[]).map((attn, idx) => (
                           <div key={idx} className="p-2 rounded bg-muted/40 border border-border/50 text-xs">
                             <div className="flex justify-between font-semibold">
                               <span>{idx + 1}. {attn.name || 'Hamba Allah'}</span>
+                              <span className={`text-[10px] ${result.alreadyUsed || attn?.checkedInAt ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                {result.alreadyUsed || attn?.checkedInAt ? 'Check-in' : 'Belum'}
+                              </span>
                             </div>
                             <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
                               <span>{attn.email || '-'}</span>
                               <span>{attn.phone || '-'}</span>
                             </div>
+                            {attn?.checkedInAt && (
+                              <p className="text-[10px] text-emerald-700 mt-0.5">Masuk: {formatDate(attn.checkedInAt)}</p>
+                            )}
                           </div>
                         ))}
                       </div>

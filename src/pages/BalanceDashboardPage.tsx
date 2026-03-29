@@ -9,15 +9,16 @@ import { toast } from '@/components/ui/toast'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { api } from '@/lib/api'
-import { mapSellerBalance, mapWithdrawal } from '@/lib/mappers'
+import { mapSellerBalance, mapSellerBalanceTransaction, mapWithdrawal } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatIDR } from '@/lib/utils'
-import type { SellerBalance, Withdrawal } from '@/types'
+import type { SellerBalance, SellerBalanceTransaction, Withdrawal } from '@/types'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/Dialog'
 
 export default function BalanceDashboardPage() {
   const { dbUser } = useAuth()
   const [balance, setBalance] = useState<SellerBalance | null>(null)
+  const [balanceTransactions, setBalanceTransactions] = useState<SellerBalanceTransaction[]>([])
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([])
   const [loading, setLoading] = useState(true)
   const [showWithdrawForm, setShowWithdrawForm] = useState(false)
@@ -47,6 +48,9 @@ export default function BalanceDashboardPage() {
     try {
       const balRaw: any = await api.get('/resale/balance')
       setBalance(mapSellerBalance(balRaw))
+
+      const txRaw: any[] = await api.get('/resale/balance/history')
+      setBalanceTransactions(Array.isArray(txRaw) ? txRaw.map(mapSellerBalanceTransaction) : [])
       
       const wdRaw: any = await api.get(`/resale/admin/withdrawals?user_id=${dbUser?.id}`) // Fallback query for user's own WDs
       setWithdrawals(wdRaw.map(mapWithdrawal))
@@ -147,12 +151,15 @@ export default function BalanceDashboardPage() {
                    <Skeleton className="h-16 rounded-xl" />
                    <Skeleton className="h-16 rounded-xl" />
                 </div>
-              ) : withdrawals.length === 0 ? (
+                ) : balanceTransactions.length === 0 && withdrawals.length === 0 ? (
                 <div className="py-20 text-center border border-dashed border-border rounded-2xl bg-muted/5">
                    <p className="text-sm text-muted-foreground">Belum ada riwayat transaksi atau pencairan.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
+                   {balanceTransactions.map((tx) => (
+                     <BalanceTransactionRow key={tx.id} transaction={tx} />
+                   ))}
                    {withdrawals.map(wd => (
                       <WithdrawalRow key={wd.id} withdrawal={wd} />
                    ))}
@@ -314,6 +321,35 @@ function BalanceCard({ label, value, icon, highlight = false, loading = false }:
        <p className={`text-xl font-mono font-bold ${highlight ? 'text-accent' : 'text-foreground'}`}>
           {formatIDR(value)}
        </p>
+    </div>
+  )
+}
+
+function BalanceTransactionRow({ transaction }: { transaction: SellerBalanceTransaction }) {
+  const labels: Record<string, string> = {
+    RESALE_SOLD: 'Pendapatan Penjualan Resale',
+    LISTING_EXPIRED_COMPENSATION: 'Kompensasi Listing Resale Expired',
+  }
+
+  const label = labels[transaction.type] || (transaction.description || 'Penambahan Saldo')
+
+  return (
+    <div className="flex items-center justify-between p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
+      <div className="flex items-center gap-4 min-w-0">
+        <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+          <TrendingUp size={18} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-foreground">{label}</p>
+          <p className="text-[10px] text-muted-foreground">{formatDate(transaction.createdAt)}</p>
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <p className="font-mono text-sm font-bold text-emerald-700">+{formatIDR(transaction.amount)}</p>
+        <div className="inline-flex items-center gap-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border border-emerald-200 text-emerald-700 bg-emerald-100">
+          <CheckCircle2 size={12} /> Kredit
+        </div>
+      </div>
     </div>
   )
 }

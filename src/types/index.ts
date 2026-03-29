@@ -73,6 +73,8 @@ export interface TicketType {
   sold: number
   maxPerOrder: number
   maxPerAccount: number
+  isBundle?: boolean
+  bundleQty?: number
   hasPricingPhases?: boolean
   isPriceUnavailable?: boolean
   activePhaseId?: string
@@ -155,7 +157,23 @@ export interface Ticket {
   usedAt?: string
   createdAt: string
   quantity: number
+  bundleIndex?: number
+  bundleTotal?: number
   attendeeDetails?: string | any[]
+}
+
+export type CustomFormFieldType = 'text' | 'number' | 'select' | 'radio'
+export type CustomFormAppliesTo = 'order' | 'per_ticket'
+
+export interface CustomFormField {
+  id: string
+  eventId: string
+  label: string
+  fieldType: CustomFormFieldType
+  options?: string[]
+  isRequired: boolean
+  appliesTo: CustomFormAppliesTo
+  sortOrder: number
 }
 
 export interface ResaleListing {
@@ -205,6 +223,17 @@ export interface SellerBalance {
   totalEarned: number
   totalWithdrawn: number
   updatedAt: string
+}
+
+export interface SellerBalanceTransaction {
+  id: string
+  sellerBalanceId: string
+  userId: string
+  type: 'RESALE_SOLD' | 'LISTING_EXPIRED_COMPENSATION' | string
+  amount: number
+  description?: string
+  referenceId?: string
+  createdAt: string
 }
 
 export interface Withdrawal {

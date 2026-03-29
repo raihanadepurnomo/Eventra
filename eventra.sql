@@ -53,13 +53,6 @@ CREATE TABLE `eo_profiles` (
   `updated_at` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `eo_profiles`
---
-
-INSERT INTO `eo_profiles` (`id`, `user_id`, `org_name`, `description`, `phone`, `status`, `created_at`, `updated_at`) VALUES
-('eo_f4c0b23a', 'user_cc3791e11c01', 'EO Maju Jaya', 'Maju Terus', NULL, 'ACTIVE', '2026-03-28 07:25:06', NULL);
-
 -- --------------------------------------------------------
 
 --
@@ -83,13 +76,6 @@ CREATE TABLE `events` (
   `updated_at` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `events`
---
-
-INSERT INTO `events` (`id`, `eo_profile_id`, `title`, `description`, `category`, `banner_image`, `location`, `location_url`, `start_date`, `end_date`, `status`, `is_resale_allowed`, `created_at`, `updated_at`) VALUES
-('2b15839b-52a6-4aac-849a-e501caf38e78', 'eo_f4c0b23a', 'Makan Besar', 'Makan Makan', 'Festival', '/banner-image/event_1774682840529.png', 'JCC', 'https://share.google/RcX8nlLQdwjGrEO2w', '2026-04-03T07:26:00.000Z', '2026-04-06T07:26:00.000Z', 'PUBLISHED', 0, '2026-03-28 07:27:20', '2026-03-28 07:27:20');
-
 -- --------------------------------------------------------
 
 --
@@ -104,14 +90,6 @@ CREATE TABLE `event_participants` (
   `is_visible` tinyint(1) DEFAULT 1,
   `joined_at` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `event_participants`
---
-
-INSERT INTO `event_participants` (`id`, `event_id`, `user_id`, `ticket_id`, `is_visible`, `joined_at`) VALUES
-('a3456e01-bb45-448f-a81a-3fe34f9cbef3', '2b15839b-52a6-4aac-849a-e501caf38e78', 'user_6dd3e1bcc9d9', 'tkt_1b0hddr28', 1, '2026-03-28 14:28:23'),
-('b9807f1b-f581-427c-a4f0-616a7e5c3124', '2b15839b-52a6-4aac-849a-e501caf38e78', 'user_9c30441f5fa3', 'tkt_kvsi8ajzd', 1, '2026-03-28 14:30:25');
 
 -- --------------------------------------------------------
 
@@ -149,14 +127,6 @@ CREATE TABLE `orders` (
   `discount_amount` int(11) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `orders`
---
-
-INSERT INTO `orders` (`id`, `user_id`, `total_amount`, `status`, `payment_method`, `payment_token`, `paid_at`, `expired_at`, `created_at`, `promo_code_id`, `discount_amount`) VALUES
-('1dca4348-afeb-4cf7-998e-33dea633acdf', 'user_6dd3e1bcc9d9', 50000, 'PAID', NULL, '2cd6ebde-a063-4534-bc15-faf334c717d4', '2026-03-28 07:28:20', '2026-03-28T07:43:02.373Z', '2026-03-28 07:28:02', NULL, 0),
-('2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'user_9c30441f5fa3', 50000, 'PAID', NULL, '77327c62-4c6e-4766-bcbc-1103d7272f20', '2026-03-28 07:30:23', '2026-03-28T07:45:08.465Z', '2026-03-28 07:30:08', NULL, 0);
-
 -- --------------------------------------------------------
 
 --
@@ -173,14 +143,6 @@ CREATE TABLE `order_items` (
   `attendee_details` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`attendee_details`)),
   `active_phase_id` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `order_items`
---
-
-INSERT INTO `order_items` (`id`, `order_id`, `ticket_type_id`, `quantity`, `unit_price`, `subtotal`, `attendee_details`, `active_phase_id`) VALUES
-('oi_4f1ff8ad', '2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]', NULL),
-('oi_6ab7d31c', '1dca4348-afeb-4cf7-998e-33dea633acdf', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 1, 50000, 50000, '[{\"name\":\"Raihan Ade Purnomo\",\"email\":\"raihanadepurnomo123@gmail.com\",\"phone\":\"081273284284\"}]', NULL);
 
 -- --------------------------------------------------------
 
@@ -256,6 +218,40 @@ CREATE TABLE `promo_code_usages` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `custom_form_fields`
+--
+
+CREATE TABLE `custom_form_fields` (
+  `id` varchar(36) NOT NULL,
+  `event_id` varchar(255) NOT NULL,
+  `label` varchar(200) NOT NULL,
+  `field_type` enum('text','number','select','radio') NOT NULL DEFAULT 'text',
+  `options` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`options`)),
+  `is_required` tinyint(1) NOT NULL DEFAULT 1,
+  `applies_to` enum('order','per_ticket') NOT NULL DEFAULT 'per_ticket',
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `custom_form_answers`
+--
+
+CREATE TABLE `custom_form_answers` (
+  `id` varchar(36) NOT NULL,
+  `field_id` varchar(36) NOT NULL,
+  `order_id` varchar(255) NOT NULL,
+  `ticket_id` varchar(255) DEFAULT NULL,
+  `answer` text NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `ticket_pricing_phases`
 --
 
@@ -295,13 +291,6 @@ CREATE TABLE `resale_listings` (
   `expired_at` datetime NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `resale_listings`
---
-
-INSERT INTO `resale_listings` (`id`, `ticket_id`, `seller_id`, `original_price`, `asking_price`, `max_allowed_price`, `platform_fee`, `seller_receives`, `note`, `status`, `listed_at`, `sold_at`, `cancelled_at`, `expired_at`) VALUES
-('rl_fc27c562', 'tkt_1b0hddr28', 'user_6dd3e1bcc9d9', 50000, 60000, 60000, 3000, 57000, NULL, 'SOLD', '2026-03-28 14:31:35', '2026-03-28 14:32:36', NULL, '2026-04-01 14:27:00');
-
 -- --------------------------------------------------------
 
 --
@@ -325,13 +314,6 @@ CREATE TABLE `resale_orders` (
   `created_at` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `resale_orders`
---
-
-INSERT INTO `resale_orders` (`id`, `resale_listing_id`, `buyer_id`, `total_paid`, `platform_fee`, `seller_receives`, `attendee_details`, `status`, `payment_token`, `midtrans_order_id`, `payment_method`, `paid_at`, `expired_at`, `created_at`) VALUES
-('rord_1d032fd0', 'rl_fc27c562', 'user_9c30441f5fa3', 60000, 3000, 57000, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]', 'PAID', 'a0795738-df4e-4b9a-aa8f-d098c74b6ad0', 'rord_1d032fd0', NULL, '2026-03-28 14:32:36', '2026-03-28 14:47:18', '2026-03-28 14:32:18');
-
 -- --------------------------------------------------------
 
 --
@@ -347,14 +329,6 @@ CREATE TABLE `seat_social_profiles` (
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `seat_social_profiles`
---
-
-INSERT INTO `seat_social_profiles` (`id`, `user_id`, `bio`, `instagram_handle`, `display_name`, `created_at`, `updated_at`) VALUES
-('ssp_6c95516687ab', 'user_9c30441f5fa3', 'keren banget', 'zeruel', NULL, '2026-03-28 14:29:32', '2026-03-28 14:29:32'),
-('ssp_a55834d5d070', 'user_6dd3e1bcc9d9', 'mahasiswa', 'raihanadepurnomo', NULL, '2026-03-28 14:23:53', '2026-03-28 14:23:53');
 
 -- --------------------------------------------------------
 
@@ -372,13 +346,22 @@ CREATE TABLE `seller_balances` (
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
 --
--- Dumping data for table `seller_balances`
+-- Table structure for table `seller_balance_transactions`
 --
 
-INSERT INTO `seller_balances` (`id`, `user_id`, `balance`, `total_earned`, `total_withdrawn`, `created_at`, `updated_at`) VALUES
-('bal_d33ec26c', 'user_cc3791e11c01', 0, 0, 0, '2026-03-28 14:35:01', '2026-03-28 14:35:01'),
-('bal_de0d27b6', 'user_6dd3e1bcc9d9', 0, 57000, 57000, '2026-03-28 14:31:52', '2026-03-28 14:33:53');
+CREATE TABLE `seller_balance_transactions` (
+  `id` varchar(50) NOT NULL,
+  `seller_balance_id` varchar(50) NOT NULL,
+  `user_id` varchar(50) NOT NULL,
+  `type` varchar(60) NOT NULL,
+  `amount` int(11) NOT NULL DEFAULT 0,
+  `description` varchar(255) DEFAULT NULL,
+  `reference_id` varchar(100) DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -398,17 +381,10 @@ CREATE TABLE `tickets` (
   `created_at` text DEFAULT NULL,
   `quantity` int(11) DEFAULT 1,
   `attendee_details` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`attendee_details`)),
-  `order_item_id` varchar(255) DEFAULT NULL
+  `order_item_id` varchar(255) DEFAULT NULL,
+  `bundle_index` int(11) NOT NULL DEFAULT 1,
+  `bundle_total` int(11) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `tickets`
---
-
-INSERT INTO `tickets` (`id`, `order_id`, `user_id`, `ticket_type_id`, `qr_code`, `status`, `is_used`, `used_at`, `created_at`, `quantity`, `attendee_details`, `order_item_id`) VALUES
-('tkt_1b0hddr28', '1dca4348-afeb-4cf7-998e-33dea633acdf', 'user_6dd3e1bcc9d9', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 'qr_22sce9vhm62i', 'TRANSFERRED', 1, NULL, '2026-03-28 07:28:20', 1, '[{\"name\":\"Raihan Ade Purnomo\",\"email\":\"raihanadepurnomo123@gmail.com\",\"phone\":\"081273284284\"}]', 'oi_6ab7d31c'),
-('tkt_d3a9b322', 'rord_1d032fd0', 'user_9c30441f5fa3', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 'qr_99bd5a845427', 'ACTIVE', 0, NULL, '2026-03-28 14:32:36', 1, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]', NULL),
-('tkt_kvsi8ajzd', '2300ae52-ddf5-4711-8244-c5e1bf12cca6', 'user_9c30441f5fa3', 'c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', 'qr_g1rkpv6pb87', 'USED', 1, '2026-03-28T07:37:16.166Z', '2026-03-28 07:30:23', 1, '[{\"name\":\"zeruel\",\"email\":\"zeruel@gmail.com\",\"phone\":\"098765671823\"}]', 'oi_4f1ff8ad');
 
 -- --------------------------------------------------------
 
@@ -426,16 +402,11 @@ CREATE TABLE `ticket_types` (
   `sold` int(11) DEFAULT NULL,
   `max_per_order` int(11) DEFAULT NULL,
   `max_per_account` int(11) NOT NULL DEFAULT 0,
+  `is_bundle` tinyint(1) NOT NULL DEFAULT 0,
+  `bundle_qty` int(11) NOT NULL DEFAULT 1,
   `sale_start_date` text DEFAULT NULL,
   `sale_end_date` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `ticket_types`
---
-
-INSERT INTO `ticket_types` (`id`, `event_id`, `name`, `description`, `price`, `quota`, `sold`, `max_per_order`, `max_per_account`, `sale_start_date`, `sale_end_date`) VALUES
-('c8c0cd6b-b7de-45d6-bb54-b7a4a9bdf029', '2b15839b-52a6-4aac-849a-e501caf38e78', 'VIP', 'Makan', 50000, 100, 2, 3, 0, '2026-03-28T07:27:00.000Z', '2026-04-01T07:27:00.000Z');
 
 -- --------------------------------------------------------
 
@@ -465,15 +436,8 @@ CREATE TABLE `users` (
   `is_profile_public` tinyint(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `users`
---
-
 INSERT INTO `users` (`id`, `email`, `name`, `image`, `role`, `created_at`, `updated_at`, `email_verified`, `password_hash`, `display_name`, `avatar_url`, `phone`, `phone_verified`, `auth_provider`, `is_email_verified`, `metadata`, `username`, `username_changed_at`, `is_profile_public`) VALUES
-('user_3db2858d60f4', 'superadmin@eventra.com', 'Super Admin', NULL, 'SUPER_ADMIN', '2026-03-27 16:46:30', '2026-03-27 16:46:30', 1, '$2b$10$4S9llAZh56x2m3lvf/cMtObxq3UtGfk3LqfT3ffpEx0R8ntL6IOOO', NULL, NULL, NULL, 0, 'email', 1, NULL, NULL, NULL, 1),
-('user_6dd3e1bcc9d9', 'raihanadepurnomo123@gmail.com', 'Raihan Ade Purnomo', '/user-photo/avatar_user_6dd3e1bcc9d9_1774682607254.png', 'BUYER', '2026-03-28 07:11:24', '2026-03-28 07:24:08', 1, NULL, NULL, NULL, '081273284284', 0, 'google', 1, NULL, 'raihan', '2026-03-28 07:23:43', 1),
-('user_9c30441f5fa3', 'zeruel@gmail.com', 'zeruel', NULL, 'BUYER', '2026-03-28 07:29:15', '2026-03-28 07:29:32', 0, '$2b$10$UWODuIOiEP9IFo0JLgWnIedh0zGZ4beVP4Cm/UwbG5bWBCBqj8DmC', NULL, NULL, '098765671823', 0, 'email', 0, NULL, 'zeruel', '2026-03-28 07:29:23', 1),
-('user_cc3791e11c01', 'azriel@gmail.com', 'azriel', NULL, 'EO', '2026-03-28 07:24:49', '2026-03-28 07:25:06', 0, '$2b$10$lMoVtY/zX4yk10pKj/QdV.W5VWJ6SzF7UhbugRdvbImJvdBGR1Fxm', NULL, NULL, '081267346382', 0, 'email', 0, NULL, NULL, NULL, 1);
+('user_3db2858d60f4', 'superadmin@eventra.com', 'Super Admin', NULL, 'SUPER_ADMIN', '2026-03-27 16:46:30', '2026-03-27 16:46:30', 1, '$2b$10$4S9llAZh56x2m3lvf/cMtObxq3UtGfk3LqfT3ffpEx0R8ntL6IOOO', NULL, NULL, NULL, 0, 'email', 1, NULL, NULL, NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -491,13 +455,6 @@ CREATE TABLE `waves` (
   `created_at` datetime DEFAULT current_timestamp(),
   `responded_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `waves`
---
-
-INSERT INTO `waves` (`id`, `event_id`, `sender_id`, `receiver_id`, `message`, `status`, `created_at`, `responded_at`) VALUES
-('c5aad112-f985-449d-ba76-91962f35c937', '2b15839b-52a6-4aac-849a-e501caf38e78', 'b9807f1b-f581-427c-a4f0-616a7e5c3124', 'a3456e01-bb45-448f-a81a-3fe34f9cbef3', 'halooo', 'ACCEPTED', '2026-03-28 14:30:37', '2026-03-28 14:31:06');
 
 -- --------------------------------------------------------
 
@@ -520,13 +477,6 @@ CREATE TABLE `withdrawals` (
   `created_at` datetime DEFAULT current_timestamp(),
   `receipt_url` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `withdrawals`
---
-
-INSERT INTO `withdrawals` (`id`, `seller_balance_id`, `user_id`, `amount`, `bank_name`, `account_number`, `account_name`, `status`, `processed_at`, `rejected_reason`, `admin_note`, `created_at`, `receipt_url`) VALUES
-('wd_cb03218b', 'bal_de0d27b6', 'user_6dd3e1bcc9d9', 57000, 'Mandiri', '23454323', 'RAIHAN', 'COMPLETED', '2026-03-28 14:34:18', NULL, NULL, '2026-03-28 14:33:53', NULL);
 
 --
 -- Indexes for dumped tables
@@ -610,6 +560,22 @@ ALTER TABLE `password_reset_tokens`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `custom_form_fields`
+--
+ALTER TABLE `custom_form_fields`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_custom_form_event` (`event_id`);
+
+--
+-- Indexes for table `custom_form_answers`
+--
+ALTER TABLE `custom_form_answers`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_custom_form_answer_field` (`field_id`),
+  ADD KEY `idx_custom_form_answer_order` (`order_id`),
+  ADD KEY `idx_custom_form_answer_ticket` (`ticket_id`);
+
+--
 -- Indexes for table `resale_listings`
 --
 ALTER TABLE `resale_listings`
@@ -641,6 +607,16 @@ ALTER TABLE `seat_social_profiles`
 ALTER TABLE `seller_balances`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `user_id` (`user_id`);
+
+--
+-- Indexes for table `seller_balance_transactions`
+--
+ALTER TABLE `seller_balance_transactions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_seller_balance_transactions_user` (`user_id`),
+  ADD KEY `idx_seller_balance_transactions_created` (`created_at`),
+  ADD UNIQUE KEY `uq_seller_balance_transactions_ref` (`user_id`,`type`,`reference_id`),
+  ADD KEY `idx_seller_balance_transactions_balance` (`seller_balance_id`);
 
 --
 -- Indexes for table `tickets`
@@ -699,6 +675,20 @@ ALTER TABLE `event_participants`
   ADD CONSTRAINT `event_participants_ibfk_3` FOREIGN KEY (`ticket_id`) REFERENCES `tickets` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `custom_form_fields`
+--
+ALTER TABLE `custom_form_fields`
+  ADD CONSTRAINT `custom_form_fields_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `custom_form_answers`
+--
+ALTER TABLE `custom_form_answers`
+  ADD CONSTRAINT `custom_form_answers_ibfk_1` FOREIGN KEY (`field_id`) REFERENCES `custom_form_fields` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `custom_form_answers_ibfk_2` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `custom_form_answers_ibfk_3` FOREIGN KEY (`ticket_id`) REFERENCES `tickets` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `resale_listings`
 --
 ALTER TABLE `resale_listings`
@@ -743,6 +733,13 @@ ALTER TABLE `otp_codes`
 --
 ALTER TABLE `seller_balances`
   ADD CONSTRAINT `seller_balances_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `seller_balance_transactions`
+--
+ALTER TABLE `seller_balance_transactions`
+  ADD CONSTRAINT `seller_balance_transactions_ibfk_1` FOREIGN KEY (`seller_balance_id`) REFERENCES `seller_balances` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `seller_balance_transactions_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `ticket_pricing_phases`

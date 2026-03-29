@@ -1,5 +1,5 @@
 // Database snake_case to frontend camelCase mappers
-import type { Event, TicketType, EOProfile, Order, OrderItem, Ticket, ResaleListing, User, ResaleOrder, SellerBalance, Withdrawal, PromoCode, TicketPricingPhase } from '@/types'
+import type { Event, TicketType, EOProfile, Order, OrderItem, Ticket, ResaleListing, User, ResaleOrder, SellerBalance, SellerBalanceTransaction, Withdrawal, PromoCode, TicketPricingPhase, CustomFormField } from '@/types'
 
 type RawRow = Record<string, unknown>
 
@@ -34,6 +34,9 @@ export function mapUser(u: RawRow): User {
 }
 
 export function mapTicketType(t: RawRow): TicketType {
+  const isBundle = !!(t.is_bundle ?? t.isBundle)
+  const rawBundleQty = Number(t.bundle_qty ?? t.bundleQty ?? 1)
+
   return {
     id: t.id as string, eventId: (t.event_id ?? t.eventId) as string,
     name: t.name as string, description: t.description as string | undefined,
@@ -41,6 +44,8 @@ export function mapTicketType(t: RawRow): TicketType {
     effectivePrice: Number(t.effective_price ?? t.effectivePrice ?? t.active_phase_price ?? t.activePhasePrice ?? t.price ?? 0),
     maxPerOrder: Number(t.max_per_order ?? t.maxPerOrder ?? 5),
     maxPerAccount: Number(t.max_per_account ?? t.maxPerAccount ?? 0),
+    isBundle,
+    bundleQty: isBundle ? Math.max(2, rawBundleQty || 2) : 1,
     hasPricingPhases: !!(t.has_pricing_phases ?? t.hasPricingPhases),
     isPriceUnavailable: !!(t.is_price_unavailable ?? t.isPriceUnavailable),
     activePhaseId: (t.active_phase_id ?? t.activePhaseId) as string | undefined,
@@ -115,7 +120,31 @@ export function mapTicket(t: RawRow): Ticket {
     usedAt: (t.used_at ?? t.usedAt) as string | undefined,
     createdAt: (t.created_at ?? t.createdAt) as string,
     quantity: Number(t.quantity ?? 1),
+    bundleIndex: Number(t.bundle_index ?? t.bundleIndex ?? 1),
+    bundleTotal: Number(t.bundle_total ?? t.bundleTotal ?? 1),
     attendeeDetails: details as string | any[] | undefined
+  }
+}
+
+export function mapCustomFormField(field: RawRow): CustomFormField {
+  let options = field.options
+  if (typeof options === 'string') {
+    try {
+      options = JSON.parse(options)
+    } catch {
+      options = []
+    }
+  }
+
+  return {
+    id: String(field.id || ''),
+    eventId: String(field.event_id ?? field.eventId ?? ''),
+    label: String(field.label || ''),
+    fieldType: (field.field_type ?? field.fieldType ?? 'text') as CustomFormField['fieldType'],
+    options: Array.isArray(options) ? options.map((opt) => String(opt)) : [],
+    isRequired: Boolean(field.is_required ?? field.isRequired ?? true),
+    appliesTo: (field.applies_to ?? field.appliesTo ?? 'per_ticket') as CustomFormField['appliesTo'],
+    sortOrder: Number(field.sort_order ?? field.sortOrder ?? 0),
   }
 }
 
@@ -171,6 +200,19 @@ export function mapSellerBalance(b: RawRow): SellerBalance {
     totalEarned: Number(b.total_earned ?? b.totalEarned),
     totalWithdrawn: Number(b.total_withdrawn ?? b.totalWithdrawn),
     updatedAt: (b.updated_at ?? b.updatedAt) as string,
+  }
+}
+
+export function mapSellerBalanceTransaction(tx: RawRow): SellerBalanceTransaction {
+  return {
+    id: tx.id as string,
+    sellerBalanceId: (tx.seller_balance_id ?? tx.sellerBalanceId) as string,
+    userId: (tx.user_id ?? tx.userId) as string,
+    type: String(tx.type || ''),
+    amount: Number(tx.amount || 0),
+    description: (tx.description ?? tx.note) as string | undefined,
+    referenceId: (tx.reference_id ?? tx.referenceId) as string | undefined,
+    createdAt: (tx.created_at ?? tx.createdAt) as string,
   }
 }
 

@@ -54,7 +54,9 @@ coverage/
 
 # ─── Uploads (user-uploaded files) ──────────────────────────────────────────────
 server/uploads/
-public/uploads/
+public/banner-image/
+public/reciepts/
+public/user-photo/
 
 # ─── Package lock (pilih salah satu sesuai package manager yang digunakan) ──────
 # Hapus baris di bawah ini jika Anda INGIN commit package-lock.json

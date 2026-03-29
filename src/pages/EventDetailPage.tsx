@@ -12,11 +12,11 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { api } from '@/lib/api'
-import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing } from '@/lib/mappers'
+import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapCustomFormField } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
 import { formatIDR, formatDateRange } from '@/lib/utils'
 import { FUNCTIONS } from '@/lib/functions'
-import type { Event, TicketType, EOProfile, ResaleListing } from '@/types'
+import type { Event, TicketType, EOProfile, ResaleListing, CustomFormField } from '@/types'
 
 // Midtrans Snap client key (public, safe to expose)
 const MIDTRANS_CLIENT_KEY = import.meta.env.VITE_MIDTRANS_CLIENT_KEY ?? ''
@@ -57,8 +57,31 @@ function isTicketPurchasableNow(tt: TicketType): boolean {
 }
 
 function getEffectivePrice(tt: TicketType): number {
-  const candidate = tt.activePhasePrice ?? tt.effectivePrice ?? tt.price
+  // Prioritize effectivePrice so frontend follows backend pricing resolution.
+  const candidate = tt.effectivePrice ?? tt.activePhasePrice ?? tt.price
   return Number(candidate || 0)
+}
+
+function validateCustomFieldAnswer(field: CustomFormField, rawValue: unknown): { ok: boolean; message?: string } {
+  const value = String(rawValue ?? '').trim()
+  if (!value) {
+    if (field.isRequired) {
+      return { ok: false, message: `Pertanyaan wajib "${field.label}" belum diisi.` }
+    }
+    return { ok: true }
+  }
+
+  if (field.fieldType === 'number' && Number.isNaN(Number(value))) {
+    return { ok: false, message: `Jawaban untuk "${field.label}" harus berupa angka.` }
+  }
+
+  if ((field.fieldType === 'select' || field.fieldType === 'radio') && Array.isArray(field.options) && field.options.length > 0) {
+    if (!field.options.includes(value)) {
+      return { ok: false, message: `Jawaban untuk "${field.label}" tidak valid.` }
+    }
+  }
+
+  return { ok: true }
 }
 
 function formatRemainingTime(targetDate?: string, nowMs = Date.now()): string | null {
@@ -91,13 +114,15 @@ function TicketRow({
   onChange: (id: string, q: number) => void
 }) {
   const remaining = Number(tt.quota) - Number(tt.sold)
+  const isBundle = Boolean(tt.isBundle)
+  const bundleQty = Math.max(1, Number(tt.bundleQty || 1))
   const displayPrice = getEffectivePrice(tt)
   const hasDiscountedPhase = Boolean(tt.activePhaseName) && Number(tt.price) > displayPrice
   const phaseCountdown = formatRemainingTime(tt.activePhaseEndDate, nowMs)
   const phaseRemaining = tt.activePhaseQuotaRemaining
   const soldOut = remaining <= 0
   const active = isTicketPurchasableNow(tt)
-  const availabilityLabel = soldOut ? 'Habis' : (!active ? 'Belum tersedia' : `${remaining} tersedia`)
+  const availabilityLabel = soldOut ? 'Habis' : (!active ? 'Belum tersedia' : `${remaining} ${isBundle ? 'paket' : 'tersedia'}`)
   const availabilityClassName = soldOut
     ? 'bg-destructive/10 text-destructive border-destructive/20'
     : (!active
@@ -122,6 +147,9 @@ function TicketRow({
         <div className="flex-1 min-w-0 pr-1">
           <p className="text-sm font-semibold text-foreground">{tt.name}</p>
           {tt.description && <p className="text-xs text-muted-foreground mt-0.5">{tt.description}</p>}
+          {isBundle && (
+            <p className="text-[11px] text-emerald-700 mt-1">🎟️ × {bundleQty} berisi {bundleQty} tiket masuk</p>
+          )}
           <div className="mt-1.5 space-y-1">
             {displayPrice === 0 ? (
               <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200 whitespace-nowrap">
@@ -195,6 +223,7 @@ function TicketRow({
 function BookingCard({ 
   ticketTypes, quantities, ownedTicketCounts, hasOwnershipData, selectedItems, subtotal, discountAmount, total, totalQty, buying, isAuthenticated, countdown, onQtyChange, onBuy,
   step, attendeeForms, onAttendeeChange, onBack,
+  customFormFields, perOrderValues, onPerOrderValueChange, onPerTicketFieldChange,
   buyForSelf, onSelfToggle, currentUser,
   nowMs,
   promoInput,
@@ -208,6 +237,10 @@ function BookingCard({
   subtotal: number; discountAmount: number; total: number; totalQty: number; buying: boolean; isAuthenticated: boolean
   countdown: string | null; onQtyChange: (id: string, q: number) => void; onBuy: () => void
   step: 'select' | 'details', attendeeForms: Record<string, any[]>, onAttendeeChange: (ttId: string, idx: number, field: string, val: string) => void, onBack: () => void,
+  customFormFields: CustomFormField[]
+  perOrderValues: Record<string, string>
+  onPerOrderValueChange: (fieldId: string, value: string) => void
+  onPerTicketFieldChange: (ttId: string, idx: number, fieldId: string, value: string) => void
   buyForSelf: boolean, onSelfToggle: (val: boolean) => void, currentUser: any,
   nowMs: number,
   promoInput: string,
@@ -218,6 +251,49 @@ function BookingCard({
   appliedPromo: { code: string; description?: string; discountAmount: number } | null,
 }) {
   const firstSelectedTtId = selectedItems[0]?.id
+  const orderFields = customFormFields.filter((field) => field.appliesTo === 'order')
+  const perTicketFields = customFormFields.filter((field) => field.appliesTo === 'per_ticket')
+
+  function renderCustomFieldInput(field: CustomFormField, value: string, onChange: (next: string) => void, keySeed: string) {
+    if (field.fieldType === 'select') {
+      return (
+        <select
+          key={keySeed}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-accent outline-none"
+        >
+          <option value="">Pilih...</option>
+          {(field.options || []).map((opt) => (
+            <option key={`${keySeed}-${opt}`} value={opt}>{opt}</option>
+          ))}
+        </select>
+      )
+    }
+
+    if (field.fieldType === 'radio') {
+      return (
+        <div key={keySeed} className="flex flex-wrap gap-3 pt-1">
+          {(field.options || []).map((opt) => (
+            <label key={`${keySeed}-${opt}`} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+              <input type="radio" name={keySeed} checked={value === opt} onChange={() => onChange(opt)} />
+              {opt}
+            </label>
+          ))}
+        </div>
+      )
+    }
+
+    return (
+      <input
+        key={keySeed}
+        type={field.fieldType === 'number' ? 'number' : 'text'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-accent outline-none"
+      />
+    )
+  }
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -268,10 +344,25 @@ function BookingCard({
             <label htmlFor="buyForSelf" className="text-xs font-medium cursor-pointer">Tiket ini untuk saya sendiri</label>
           </div>
 
+          {orderFields.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Informasi Peserta (Per Order)</p>
+              {orderFields.map((field) => {
+                const value = perOrderValues[field.id] || ''
+                return (
+                  <div key={field.id} className="space-y-1">
+                    <p className="text-xs font-medium text-foreground">{field.label} {field.isRequired ? '*' : ''}</p>
+                    {renderCustomFieldInput(field, value, (next) => onPerOrderValueChange(field.id, next), `order-${field.id}`)}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {selectedItems.map((tt) => (
             <div key={tt.id} className="space-y-3">
               <p className="text-xs font-bold text-accent uppercase tracking-wider">{tt.name}</p>
-              {Array.from({ length: quantities[tt.id] }).map((_, i) => {
+              {Array.from({ length: (quantities[tt.id] ?? 0) * (tt.isBundle ? Number(tt.bundleQty || 1) : 1) }).map((_, i) => {
                 const isAutoFilled = buyForSelf && tt.id === firstSelectedTtId && i === 0
                 return (
                   <div key={i} className={`p-3 rounded-lg border border-border ${isAutoFilled ? 'bg-accent/5' : 'bg-muted/20'} space-y-2 relative transition-colors`}>
@@ -305,6 +396,25 @@ function BookingCard({
                         readOnly={isAutoFilled}
                       />
                     </div>
+
+                    {perTicketFields.length > 0 && (
+                      <div className="pt-1 space-y-2 border-t border-border/60">
+                        {perTicketFields.map((field) => {
+                          const value = attendeeForms[tt.id]?.[i]?.customAnswers?.[field.id] || ''
+                          return (
+                            <div key={`${tt.id}-${i}-${field.id}`} className="space-y-1">
+                              <p className="text-xs font-medium text-foreground">{field.label} {field.isRequired ? '*' : ''}</p>
+                              {renderCustomFieldInput(
+                                field,
+                                value,
+                                (next) => onPerTicketFieldChange(tt.id, i, field.id, next),
+                                `ticket-${tt.id}-${i}-${field.id}`
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -404,6 +514,8 @@ export default function EventDetailPage() {
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const [step, setStep] = useState<'select' | 'details'>('select')
   const [attendeeForms, setAttendeeForms] = useState<Record<string, any[]>>({})
+  const [customFormFields, setCustomFormFields] = useState<CustomFormField[]>([])
+  const [perOrderFormValues, setPerOrderFormValues] = useState<Record<string, string>>({})
   const [ownedTicketCounts, setOwnedTicketCounts] = useState<Record<string, number>>({})
   const [hasOwnershipData, setHasOwnershipData] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now())
@@ -441,6 +553,7 @@ export default function EventDetailPage() {
         const ev = mapEvent(evRaw)
         setEvent(ev)
         const ttsRaw = await api.get<Record<string, unknown>[]>(`/ticket-types?event_id=${id}`)
+        const customFieldRaw = await api.get<Record<string, unknown>[]>(`/events/${id}/custom-form-fields`)
         let eoRaw: Record<string, unknown> | null = null
         const profileId = ev.eoProfileId ?? evRaw.eo_profile_id
         if (profileId) {
@@ -451,7 +564,18 @@ export default function EventDetailPage() {
           }
         }
         const tts = ttsRaw.map(mapTicketType)
+        const fields = customFieldRaw.map(mapCustomFormField)
         setTicketTypes(tts)
+        setCustomFormFields(fields)
+        setPerOrderFormValues((prev) => {
+          const next: Record<string, string> = {}
+          for (const field of fields) {
+            if (field.appliesTo === 'order') {
+              next[field.id] = prev[field.id] || ''
+            }
+          }
+          return next
+        })
         setEOProfile(eoRaw ? mapEOProfile(eoRaw) : null)
         const initQty: Record<string, number> = {}
         tts.forEach((t) => { initQty[t.id] = 0 })
@@ -576,16 +700,17 @@ export default function EventDetailPage() {
     const ticketType = ticketTypes.find((tt) => tt.id === ticketTypeId)
     const maxSelectable = ticketType ? getMaxSelectable(ticketType) : qty
     const safeQty = Math.max(0, Math.min(qty, maxSelectable))
+    const formEntryCount = safeQty * (ticketType?.isBundle ? Math.max(1, Number(ticketType.bundleQty || 1)) : 1)
 
     setQuantities((prev) => ({ ...prev, [ticketTypeId]: safeQty }))
     // Initialize forms for this ticket type
     setAttendeeForms(prev => {
       const current = prev[ticketTypeId] || []
       const next = [...current]
-      if (safeQty > next.length) {
-        for (let i = next.length; i < safeQty; i++) next.push({ name: '', email: '', phone: '' })
+      if (formEntryCount > next.length) {
+        for (let i = next.length; i < formEntryCount; i++) next.push({ name: '', email: '', phone: '', customAnswers: {} })
       } else {
-        next.splice(safeQty)
+        next.splice(formEntryCount)
       }
       return { ...prev, [ticketTypeId]: next }
     })
@@ -594,8 +719,23 @@ export default function EventDetailPage() {
   function handleAttendeeChange(ttId: string, idx: number, field: string, val: string) {
     setAttendeeForms(prev => {
       const next = [...(prev[ttId] || [])]
-      if (!next[idx]) next[idx] = { name: '', email: '', phone: '' }
+      if (!next[idx]) next[idx] = { name: '', email: '', phone: '', customAnswers: {} }
       next[idx] = { ...next[idx], [field]: val }
+      return { ...prev, [ttId]: next }
+    })
+  }
+
+  function handlePerOrderFieldChange(fieldId: string, value: string) {
+    setPerOrderFormValues((prev) => ({ ...prev, [fieldId]: value }))
+  }
+
+  function handlePerTicketFieldChange(ttId: string, idx: number, fieldId: string, value: string) {
+    setAttendeeForms((prev) => {
+      const next = [...(prev[ttId] || [])]
+      if (!next[idx]) next[idx] = { name: '', email: '', phone: '', customAnswers: {} }
+      const row = next[idx]
+      const customAnswers = { ...(row.customAnswers || {}), [fieldId]: value }
+      next[idx] = { ...row, customAnswers }
       return { ...prev, [ttId]: next }
     })
   }
@@ -714,11 +854,22 @@ export default function EventDetailPage() {
 
     // Validate and prepopulate if self
     const firstSelectedTtId = selectedItems[0]?.id
+    const orderFields = customFormFields.filter((field) => field.appliesTo === 'order')
+    const perTicketFields = customFormFields.filter((field) => field.appliesTo === 'per_ticket')
     let selfPhone = ''
+
+    for (const field of orderFields) {
+      const check = validateCustomFieldAnswer(field, perOrderFormValues[field.id])
+      if (!check.ok) {
+        toast.error(check.message || 'Jawaban form per order belum valid.')
+        return
+      }
+    }
     
     for (const tt of selectedItems) {
       const forms = attendeeForms[tt.id] || []
-      for (let i = 0; i < (quantities[tt.id] || 0); i++) {
+      const entryCount = (quantities[tt.id] || 0) * (tt.isBundle ? Math.max(1, Number(tt.bundleQty || 1)) : 1)
+      for (let i = 0; i < entryCount; i++) {
         let name = forms[i]?.name
         let email = forms[i]?.email
         let phone = forms[i]?.phone
@@ -729,6 +880,14 @@ export default function EventDetailPage() {
            selfPhone = dbUser.phone || phone
         }
         if (!name) { toast.error(`Nama peserta ${i+1} untuk ${tt.name} harus diisi`); return }
+
+        for (const field of perTicketFields) {
+          const check = validateCustomFieldAnswer(field, forms[i]?.customAnswers?.[field.id])
+          if (!check.ok) {
+            toast.error(`${tt.name} - Tiket #${i + 1}: ${check.message || 'Jawaban form belum valid.'}`)
+            return
+          }
+        }
       }
     }
 
@@ -755,6 +914,24 @@ export default function EventDetailPage() {
         expiredAt: total === 0 ? undefined : expiredAt,
         createdAt: now,
         promoCode: appliedPromo?.code,
+        formAnswers: {
+          perOrder: orderFields.reduce((acc, field) => {
+            acc[field.id] = perOrderFormValues[field.id] || ''
+            return acc
+          }, {} as Record<string, string>),
+          perTicket: selectedItems.reduce((acc, tt) => {
+            const entryCount = (quantities[tt.id] ?? 0) * (tt.isBundle ? Math.max(1, Number(tt.bundleQty || 1)) : 1)
+            acc[tt.id] = Array.from({ length: entryCount }).map((_, idx) => {
+              const row = attendeeForms[tt.id]?.[idx]
+              const customAnswers = row?.customAnswers || {}
+              return perTicketFields.reduce((inner, field) => {
+                inner[field.id] = customAnswers[field.id] || ''
+                return inner
+              }, {} as Record<string, string>)
+            })
+            return acc
+          }, {} as Record<string, Record<string, string>[]>),
+        },
         items: selectedItems.map(tt => {
           const qty = quantities[tt.id] ?? 0;
           const unitPrice = getEffectivePrice(tt)
@@ -806,7 +983,6 @@ export default function EventDetailPage() {
               return a
             })
           })
-          await api.put(`/ticket-types/${tt.id}`, { sold: Number(tt.sold) + qty })
         }
         toast.success('Tiket berhasil dibeli!')
         navigate({ to: '/dashboard' })
@@ -892,7 +1068,7 @@ export default function EventDetailPage() {
       const res: any = await api.post(`/resale/listings/${activeResaleListing.id}/buy`, {
         attendee_details: [resaleAttendee] // Wrap in array as backend handles many or one
       })
-      const { snapToken } = res
+      const { snapToken, resaleOrderId } = res
 
       if (!window.snap) {
         toast.error('Gagal memuat sistem pembayaran')
@@ -900,8 +1076,19 @@ export default function EventDetailPage() {
       }
 
       window.snap.pay(snapToken, {
-        onSuccess: () => {
+        onSuccess: async () => {
           toast.success('Tiket resale berhasil dibeli!')
+          try {
+            const authToken = await localStorage.getItem('eventra_token')
+            if (resaleOrderId && authToken) {
+              await fetch(`http://localhost:5000/api/payment/check/${resaleOrderId}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${authToken}` }
+              })
+            }
+          } catch {
+            // ignore sync errors, dashboard will retry
+          }
           navigate({ to: '/dashboard' })
         },
         onPending: () => {
@@ -1046,6 +1233,10 @@ export default function EventDetailPage() {
                   subtotal={subtotal} discountAmount={discountAmount} total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}
+                  customFormFields={customFormFields}
+                  perOrderValues={perOrderFormValues}
+                  onPerOrderValueChange={handlePerOrderFieldChange}
+                  onPerTicketFieldChange={handlePerTicketFieldChange}
                   onBack={() => setStep('select')}
                   buyForSelf={buyForSelf} onSelfToggle={setBuyForSelf} currentUser={dbUser}
                   nowMs={nowMs}
@@ -1067,6 +1258,10 @@ export default function EventDetailPage() {
                   subtotal={subtotal} discountAmount={discountAmount} total={total} totalQty={totalQty} buying={buying} isAuthenticated={isAuthenticated}
                   countdown={countdown} onQtyChange={handleQtyChange} onBuy={handleBuy}
                   step={step} attendeeForms={attendeeForms} onAttendeeChange={handleAttendeeChange}
+                  customFormFields={customFormFields}
+                  perOrderValues={perOrderFormValues}
+                  onPerOrderValueChange={handlePerOrderFieldChange}
+                  onPerTicketFieldChange={handlePerTicketFieldChange}
                   onBack={() => setStep('select')}
                   buyForSelf={buyForSelf} onSelfToggle={setBuyForSelf} currentUser={dbUser}
                   nowMs={nowMs}

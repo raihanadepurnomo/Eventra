@@ -17,7 +17,7 @@ function escapeHtml(text) {
 		.replace(/'/g, '&#39;');
 }
 
-export async function sendEmail({ to, subject, html }) {
+export async function sendEmail({ to, subject, html, attachments = [] }) {
 	if (!process.env.RESEND_API_KEY) {
 		throw new Error('RESEND_API_KEY belum diset');
 	}
@@ -37,6 +37,7 @@ export async function sendEmail({ to, subject, html }) {
 		to: finalRecipients,
 		subject,
 		html,
+		attachments,
 	});
 
 	if (result?.error) {
