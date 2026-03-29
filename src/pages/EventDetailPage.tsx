@@ -11,6 +11,7 @@ import { toast } from '@/components/ui/toast'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { SEO } from '@/components/shared/SEO'
 import { api } from '@/lib/api'
 import { mapEvent, mapTicketType, mapEOProfile, mapOrder, mapOrderItem, mapTicket, mapResaleListing, mapCustomFormField } from '@/lib/mappers'
 import { useAuth } from '@/hooks/useAuth'
@@ -1135,6 +1136,13 @@ export default function EventDetailPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO
+        title={event.title}
+        description={`${event.title} — ${formatDateRange(event.startDate, event.endDate)} di ${event.location}. Beli tiket sekarang di Eventra.`}
+        image={event.bannerImage}
+        url={`https://eventra.raihanadepurnomo.dev/events/${event.id}`}
+        type="article"
+      />
       <Navbar />
       <main className="pt-14 flex-1">
         {/* Banner */}

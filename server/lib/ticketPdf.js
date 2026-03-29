@@ -14,7 +14,6 @@ function getPdfFonts() {
     return {
       regular: 'Helvetica',
       bold: 'Helvetica-Bold',
-      italic: 'Helvetica-Oblique',
       mono: 'Courier',
     };
   }
@@ -22,7 +21,6 @@ function getPdfFonts() {
   return {
     regular: MONTSERRAT_REGULAR_PATH,
     bold: MONTSERRAT_BOLD_PATH,
-    italic: MONTSERRAT_REGULAR_PATH,
     mono: 'Courier',
   };
 }
@@ -104,130 +102,189 @@ async function drawSingleTicketPage(doc, {
   const cardY = 16;
   const cardW = pageW - 32;
   const cardH = pageH - 32;
-  const colors = {
-    border: '#111827',
-    text: '#111827',
-    textSoft: '#1f2937',
-    bg: '#ffffff',
-    lightLine: '#d1d5db',
-  };
+
+  // ── Colors - PURE BLACK for all text ──
+  const BLACK = '#000000';
+  const DARK = '#1a1a1a';
+  const LINE = '#555555';
+  const BG = '#ffffff';
 
   const qrBuffer = qrRaw
     ? await QRCode.toBuffer(qrRaw, { type: 'png', width: 720, margin: 1 })
     : null;
 
-  const leftX = cardX + 18;
-  const leftW = 404;
-  const qrZoneX = 466;
-  const qrBoxX = qrZoneX + 12;
-  const qrBoxY = cardY + 46;
-  const qrBoxSize = 132;
+  // ── Layout zones ──
+  const leftX = cardX + 20;
+  const leftW = 390;
+  const dividerX = 460;
+  const qrZoneX = dividerX + 12;
+  const qrBoxX = qrZoneX + 10;
+  const qrBoxY = cardY + 48;
+  const qrBoxSize = 130;
 
+  // ── Card background ──
   doc.save();
-  doc.fillColor(colors.bg).roundedRect(cardX, cardY, cardW, cardH, 14).fill();
+  doc.fillColor(BG).roundedRect(cardX, cardY, cardW, cardH, 12).fill();
   doc.restore();
-  doc.lineWidth(1.2).strokeColor(colors.border).roundedRect(cardX, cardY, cardW, cardH, 14).stroke();
 
-  doc.lineWidth(1).dash(4, { space: 4 }).strokeColor(colors.lightLine)
-    .moveTo(qrZoneX - 6, cardY + 14)
-    .lineTo(qrZoneX - 6, cardY + cardH - 14)
+  // ── Card border ──
+  doc.lineWidth(1.5).strokeColor(BLACK).roundedRect(cardX, cardY, cardW, cardH, 12).stroke();
+
+  // ── Vertical dashed divider ──
+  doc.lineWidth(1).dash(5, { space: 3 }).strokeColor(LINE)
+    .moveTo(dividerX, cardY + 12)
+    .lineTo(dividerX, cardY + cardH - 12)
     .stroke();
   doc.undash();
 
-  doc.fillColor(colors.text).font(fonts.bold).fontSize(10)
-    .text(String(platformName || 'Eventra').toUpperCase(), leftX, cardY + 12, { width: leftW });
+  // ══════════════════════════════════
+  // LEFT SIDE
+  // ══════════════════════════════════
 
-  doc.font(fonts.bold).fontSize(22).fillColor(colors.text)
-    .text(event?.title || 'Event', leftX, cardY + 26, { width: leftW, ellipsis: true });
+  let y = cardY + 14;
 
-  doc.font(fonts.regular).fontSize(11).fillColor(colors.textSoft)
-    .text(formatDateRange(event?.startDate, event?.endDate), leftX, cardY + 56, { width: leftW, ellipsis: true });
-  doc.text(event?.location || '-', leftX, cardY + 72, { width: leftW, ellipsis: true });
+  // Platform name
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK)
+    .text(String(platformName || 'EVENTRA').toUpperCase(), leftX, y, { width: leftW });
+  y += 14;
 
-  doc.lineWidth(1).strokeColor(colors.lightLine)
-    .moveTo(leftX, cardY + 92)
-    .lineTo(leftX + leftW, cardY + 92)
+  // Event title
+  doc.font(fonts.bold).fontSize(20).fillColor(BLACK)
+    .text(event?.title || 'Event', leftX, y, { width: leftW, lineGap: 0, ellipsis: true });
+  y += 28;
+
+  // Date & location
+  doc.font(fonts.bold).fontSize(10).fillColor(DARK)
+    .text(formatDateRange(event?.startDate, event?.endDate), leftX, y, { width: leftW });
+  y += 14;
+  doc.font(fonts.bold).fontSize(10).fillColor(DARK)
+    .text(event?.location || '-', leftX, y, { width: leftW });
+  y += 16;
+
+  // Horizontal line
+  doc.lineWidth(1.5).strokeColor(LINE)
+    .moveTo(leftX, y)
+    .lineTo(leftX + leftW, y)
     .stroke();
+  y += 10;
 
-  const rightMetaX = leftX + 220;
-  doc.font(fonts.bold).fontSize(9).fillColor(colors.text).text('Tipe Tiket', leftX, cardY + 104);
-  doc.font(fonts.regular).fontSize(10).text(ticketTypeName || '-', leftX, cardY + 116, { width: 200, ellipsis: true });
+  // ── Row 1: Tipe Tiket + Jumlah ──
+  const col2X = leftX + 240;
 
-  doc.font(fonts.bold).fontSize(9).text('Jumlah', rightMetaX, cardY + 104);
-  doc.font(fonts.regular).fontSize(10).text(qtyLabel, rightMetaX, cardY + 116, { width: 190, ellipsis: true });
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK).text('Tipe Tiket', leftX, y);
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK).text('Jumlah', col2X, y);
+  y += 13;
+  doc.font(fonts.bold).fontSize(11).fillColor(BLACK)
+    .text(ticketTypeName || '-', leftX, y, { width: 220, ellipsis: true });
+  doc.font(fonts.bold).fontSize(11).fillColor(BLACK)
+    .text(qtyLabel, col2X, y, { width: 160, ellipsis: true });
+  y += 18;
 
-  doc.font(fonts.bold).fontSize(9).text('Order ID', leftX, cardY + 136);
-  doc.font(fonts.regular).fontSize(9).text(ticket?.order_id || '-', leftX, cardY + 148, { width: leftW, ellipsis: true });
+  // ── Row 2: Order ID ──
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK).text('Order ID', leftX, y);
+  y += 12;
+  doc.font(fonts.bold).fontSize(9).fillColor(DARK)
+    .text(ticket?.order_id || '-', leftX, y, { width: leftW, ellipsis: true });
+  y += 14;
 
-  doc.font(fonts.bold).fontSize(9).text('Ticket ID', leftX, cardY + 166);
-  doc.font(fonts.regular).fontSize(9).text(ticket?.id || '-', leftX, cardY + 178, { width: leftW, ellipsis: true });
+  // ── Row 3: Ticket ID ──
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK).text('Ticket ID', leftX, y);
+  y += 12;
+  doc.font(fonts.bold).fontSize(9).fillColor(DARK)
+    .text(ticket?.id || '-', leftX, y, { width: leftW, ellipsis: true });
+  y += 14;
 
-  doc.font(fonts.bold).fontSize(9).text('Peserta', leftX, cardY + 198);
+  // ── Row 4: Peserta ──
+  doc.font(fonts.bold).fontSize(9).fillColor(BLACK).text('Peserta', leftX, y);
+  y += 12;
   if (attendeeRows.length === 0) {
-    doc.font(fonts.regular).fontSize(9).text('- Tidak ada data peserta -', leftX, cardY + 210, { width: leftW });
+    doc.font(fonts.bold).fontSize(9).fillColor(DARK)
+      .text('- Tidak ada data peserta -', leftX, y, { width: leftW });
   } else {
     const previewRows = attendeeRows.slice(0, 3);
-    let rowY = cardY + 210;
     for (let i = 0; i < previewRows.length; i += 1) {
       const attendee = previewRows[i] || {};
       const name = attendee.name || 'Peserta';
-      const line = `${i + 1}. ${name}`;
-      doc.font(fonts.regular).fontSize(9).text(line, leftX, rowY, { width: leftW, ellipsis: true });
-      rowY += 12;
+      doc.font(fonts.bold).fontSize(9).fillColor(BLACK)
+        .text(`${i + 1}. ${name}`, leftX, y, { width: leftW, ellipsis: true });
+      y += 12;
     }
     if (attendeeRows.length > 3) {
-      doc.font(fonts.regular).fontSize(8).text(`+${attendeeRows.length - 3} peserta lainnya ada di halaman berikutnya`, leftX, rowY + 2, { width: leftW });
+      doc.font(fonts.bold).fontSize(8).fillColor(DARK)
+        .text(`+${attendeeRows.length - 3} peserta lainnya`, leftX, y, { width: leftW });
     }
   }
 
-  doc.font(fonts.bold).fontSize(10).fillColor(colors.text)
-    .text('QR CHECK-IN', qrZoneX + 30, cardY + 24, { width: 120, align: 'center' });
+  // ══════════════════════════════════
+  // RIGHT SIDE (QR)
+  // ══════════════════════════════════
 
-  doc.save();
-  doc.lineWidth(1).strokeColor(colors.border).roundedRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize, 10).stroke();
-  doc.restore();
+  // QR CHECK-IN label
+  doc.font(fonts.bold).fontSize(10).fillColor(BLACK)
+    .text('QR CHECK-IN', qrZoneX, cardY + 22, { width: 150, align: 'center' });
+
+  // QR box border
+  doc.lineWidth(1.5).strokeColor(BLACK)
+    .roundedRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize, 8).stroke();
+
+  // QR code image
   if (qrBuffer) {
-    doc.image(qrBuffer, qrBoxX + 10, qrBoxY + 10, { width: qrBoxSize - 20, height: qrBoxSize - 20 });
+    doc.image(qrBuffer, qrBoxX + 8, qrBoxY + 8, {
+      width: qrBoxSize - 16,
+      height: qrBoxSize - 16,
+    });
   }
 
-  doc.fillColor(colors.text).font(fonts.regular).fontSize(8)
-    .text(qrRaw || '-', qrZoneX + 8, qrBoxY + qrBoxSize + 10, { width: 146, align: 'center', ellipsis: true });
+  // QR code text
+  doc.font(fonts.bold).fontSize(8).fillColor(BLACK)
+    .text(qrRaw || '-', qrZoneX, qrBoxY + qrBoxSize + 8, {
+      width: 150,
+      align: 'center',
+      ellipsis: true,
+    });
 
-  doc.font(fonts.regular).fontSize(8).fillColor(colors.text)
-    .text('Tunjukkan QR ini saat masuk venue', qrZoneX + 8, cardY + cardH - 24, { width: 146, align: 'center' });
+  // Instruction text
+  doc.font(fonts.bold).fontSize(8).fillColor(BLACK)
+    .text('Tunjukkan QR ini saat masuk venue', qrZoneX, cardY + cardH - 22, {
+      width: 150,
+      align: 'center',
+    });
 
+  // ══════════════════════════════════
+  // EXTRA PAGES for many attendees
+  // ══════════════════════════════════
   if (attendeeRows.length > 3) {
     let offset = 3;
     while (offset < attendeeRows.length) {
       doc.addPage({ size: [pageW, pageH], margin: 0 });
 
       doc.save();
-      doc.fillColor(colors.bg).roundedRect(cardX, cardY, cardW, cardH, 14).fill();
+      doc.fillColor(BG).roundedRect(cardX, cardY, cardW, cardH, 12).fill();
       doc.restore();
-      doc.lineWidth(1.2).strokeColor(colors.border).roundedRect(cardX, cardY, cardW, cardH, 14).stroke();
+      doc.lineWidth(1.5).strokeColor(BLACK).roundedRect(cardX, cardY, cardW, cardH, 12).stroke();
 
-      doc.font(fonts.bold).fontSize(15).fillColor(colors.text)
+      doc.font(fonts.bold).fontSize(14).fillColor(BLACK)
         .text('Daftar Peserta', cardX + 20, cardY + 22, { width: cardW - 40 });
-      doc.font(fonts.regular).fontSize(9).fillColor(colors.textSoft)
-        .text(`${event?.title || 'Event'} • ${ticketTypeName || 'Tiket'}`, cardX + 20, cardY + 42, { width: cardW - 40, ellipsis: true });
+      doc.font(fonts.bold).fontSize(9).fillColor(DARK)
+        .text(`${event?.title || 'Event'} — ${ticketTypeName || 'Tiket'}`, cardX + 20, cardY + 40, { width: cardW - 40, ellipsis: true });
 
-      doc.lineWidth(1).strokeColor(colors.lightLine)
-        .moveTo(cardX + 20, cardY + 58)
-        .lineTo(cardX + cardW - 20, cardY + 58)
+      doc.lineWidth(1).strokeColor(LINE)
+        .moveTo(cardX + 20, cardY + 56)
+        .lineTo(cardX + cardW - 20, cardY + 56)
         .stroke();
 
-      let y = cardY + 74;
-      while (offset < attendeeRows.length && y < cardY + cardH - 24) {
+      let ay = cardY + 68;
+      while (offset < attendeeRows.length && ay < cardY + cardH - 24) {
         const attendee = attendeeRows[offset] || {};
         const idx = offset + 1;
         const name = attendee.name || 'Peserta';
         const email = attendee.email || '-';
         const phone = attendee.phone || '-';
-        doc.font(fonts.bold).fontSize(9).fillColor(colors.text)
-          .text(`${idx}. ${name}`, cardX + 20, y, { width: cardW - 40, ellipsis: true });
-        doc.font(fonts.regular).fontSize(8).fillColor(colors.textSoft)
-          .text(`${email} | ${phone}`, cardX + 20, y + 12, { width: cardW - 40, ellipsis: true });
-        y += 30;
+        doc.font(fonts.bold).fontSize(9).fillColor(BLACK)
+          .text(`${idx}. ${name}`, cardX + 20, ay, { width: cardW - 40, ellipsis: true });
+        doc.font(fonts.bold).fontSize(8).fillColor(DARK)
+          .text(`${email} | ${phone}`, cardX + 20, ay + 12, { width: cardW - 40, ellipsis: true });
+        ay += 28;
         offset += 1;
       }
     }

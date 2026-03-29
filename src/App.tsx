@@ -44,6 +44,9 @@ const ResaleSellTicketPage = lazy(() => import('@/pages/ResaleSellTicketPage'))
 const AdminWithdrawalsPage = lazy(() => import('@/pages/AdminWithdrawalsPage'))
 const AdminResalePage = lazy(() => import('@/pages/AdminResalePage'))
 const EOFinancePage = lazy(() => import('@/pages/EOFinancePage'))
+const AboutPage = lazy(() => import('@/pages/AboutPage'))
+const PrivacyPage = lazy(() => import('@/pages/PrivacyPage'))
+const TermsPage = lazy(() => import('@/pages/TermsPage'))
 
 // ─── Page loader spinner ──────────────────────────────────────────────────────
 function PageLoader() {
@@ -111,6 +114,24 @@ const eventDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/events/$id',
   component: () => <EventDetailPage />,
+})
+
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/about',
+  component: () => <AboutPage />,
+})
+
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/privacy',
+  component: () => <PrivacyPage />,
+})
+
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/terms',
+  component: () => <TermsPage />,
 })
 
 // ─── Buyer / protected routes ─────────────────────────────────────────────────
@@ -418,6 +439,9 @@ const routeTree = rootRoute.addChildren([
   dashboardResaleRoute,
   dashboardBalanceRoute,
   resaleSellRoute,
+  aboutRoute,
+  privacyRoute,
+  termsRoute,
   publicProfileRoute,
 ])
 

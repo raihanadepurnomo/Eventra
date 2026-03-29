@@ -43,15 +43,27 @@ export function Footer() {
             </div>
             <div className="flex flex-col gap-3">
               <h4 className="text-xs font-semibold text-primary-foreground/40 uppercase tracking-wider">
-                Support
+                Support & Legal
               </h4>
               <nav className="flex flex-col gap-2">
-                <a
-                  href="#"
+                <Link
+                  to="/about"
                   className="text-sm text-primary-foreground/70 hover:text-primary-foreground transition-colors"
                 >
-                  Help Center
-                </a>
+                  Tentang Kami
+                </Link>
+                <Link
+                  to="/privacy"
+                  className="text-sm text-primary-foreground/70 hover:text-primary-foreground transition-colors"
+                >
+                  Kebijakan Privasi
+                </Link>
+                <Link
+                  to="/terms"
+                  className="text-sm text-primary-foreground/70 hover:text-primary-foreground transition-colors"
+                >
+                  Syarat & Ketentuan
+                </Link>
               </nav>
             </div>
           </div>

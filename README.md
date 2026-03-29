@@ -77,7 +77,7 @@ Eventra hadir untuk menjawab keterbatasan platform ticketing konvensional di Ind
 **Sosial & Profil**
 - **Seat Social** — opt-in untuk kenalan dengan sesama peserta event
 - Kirim "Wave" sebagai sapaan sebelum event
-- **Username unik** — halaman profil publik di `eventra.com/@username`
+- **Username unik** — halaman profil publik di `eventra.raihanadepurnomo.dev/@username`
 - Riwayat event yang pernah dihadiri tampil di profil publik
 
 ---
@@ -264,7 +264,7 @@ MIDTRANS_CLIENT_KEY=SB-Mid-client-xxxxxxxxxxxx
 ### 📧 Email
 ```env
 RESEND_API_KEY=re_xxxxxxxxxxxx
-RESEND_FROM_EMAIL=noreply@eventra.com
+RESEND_FROM_EMAIL=noreply@eventra.raihanadepurnomo.dev
 ```
 
 > Daftar dan dapatkan API key di [resend.com](https://resend.com)

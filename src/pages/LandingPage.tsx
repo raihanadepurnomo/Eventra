@@ -8,6 +8,7 @@ import { Footer } from '@/components/layout/Footer'
 import { api } from '@/lib/api'
 import { formatDateRange, formatIDR } from '@/lib/utils'
 import type { Event, TicketType } from '@/types'
+import { SEO } from '@/components/shared/SEO'
 
 const CATEGORY_GRADIENTS: Record<string, string> = {
   Konser: 'from-violet-500 to-purple-700',
@@ -126,6 +127,30 @@ export default function LandingPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [ticketMap, setTicketMap] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalTicketsSold: 0,
+    revenueThisMonth: 0,
+    activeEvents: 0,
+  })
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const data: any = await api.get('/public/stats')
+        if (data) {
+          setStats({
+            totalTicketsSold: data.totalTicketsSold ?? 0,
+            revenueThisMonth: data.revenueThisMonth ?? 0,
+            activeEvents: data.activeEvents ?? 0,
+          })
+        }
+      } catch (err) {}
+    }
+    fetchStats()
+    // Update every 12 hours
+    const interval = setInterval(fetchStats, 12 * 60 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -167,6 +192,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO />
       <Navbar />
 
       {/* Hero */}
@@ -299,7 +325,7 @@ export default function LandingPage() {
                   <div key={label} className="flex items-center justify-between p-3 bg-primary-foreground/5 rounded-lg border border-primary-foreground/10">
                     <span className="text-sm text-primary-foreground/70">{label}</span>
                     <span className="text-sm font-bold font-mono text-primary-foreground">
-                      {i === 0 ? '1.247' : i === 1 ? 'Rp 48.500.000' : '12'}
+                      {i === 0 ? Number(stats.totalTicketsSold).toLocaleString('id-ID') : i === 1 ? 'Rp ' + Number(stats.revenueThisMonth).toLocaleString('id-ID') : Number(stats.activeEvents).toLocaleString('id-ID')}
                     </span>
                   </div>
                 ))}

@@ -415,7 +415,7 @@ export async function sendPendingPaymentEmail(pool, orderId, midtransData = {}) 
           <p style="margin: 12px 0 0;">Cara bayar via ${escapeHtml(paymentInfo.paymentMethod)}:<br/>${paymentInfo.instructionHtml}</p>
 
           <p style="margin-top: 16px;">Setelah pembayaran berhasil, tiket akan langsung muncul di dashboard kamu.</p>
-          <p>Butuh bantuan? Hubungi kami di support@eventra.com</p>
+          <p>Butuh bantuan? Hubungi kami di support@eventra.raihanadepurnomo.dev</p>
           <p style="margin-top: 24px;">— Tim Eventra</p>
         </div>
       `,
@@ -979,5 +979,42 @@ export async function sendEOVerificationRejectedEmail({
     });
   } catch (err) {
     console.error('[email/eo-rejected] failed:', err);
+  }
+}
+
+export async function sendEventReminderEmail({
+  to,
+  recipientName,
+  event
+}) {
+  try {
+    if (!to || !event) return;
+    const dashboardUrl = `${FRONTEND_URL}/dashboard`;
+
+    await sendEmail({
+      to,
+      subject: `Besok! Bersiap untuk Event ${event.title || 'Eventra'} ⏱️`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; color: #0f172a;">
+          <p>Halo ${escapeHtml(recipientName || to)},</p>
+          <p>Tidak terasa, event yang kamu tunggu-tunggu akan dimulai <strong>besok</strong>!</p>
+
+          <div style="border: 1px solid #e0e7ff; border-radius: 10px; padding: 16px; background: #eef2ff; margin: 16px 0;">
+            <p style="margin: 0 0 6px; color: #4338ca;"><strong>${escapeHtml(event.title)}</strong></p>
+            <p style="margin: 0 0 6px; color: #475569;">${escapeHtml(formatWIB(event.startDate))}</p>
+            <p style="margin: 0; color: #475569;">📍 ${escapeHtml(event.location || '-')}</p>
+          </div>
+
+          <p>Tolong pastikan kamu sudah menyiapkan tiket QR Code di handphone kamu sebelum tiba di venue untuk mempercepat proses check-in!</p>
+          <p>Lihat tiket kamu sekarang di dashboard Eventra:</p>
+          <p><a href="${escapeHtml(dashboardUrl)}" style="background: #4f46e5; color: white; padding: 10px 18px; text-decoration: none; border-radius: 6px; display: inline-block;">Buka Dashboard Tiket</a></p>
+          
+          <p style="margin-top: 24px;">Sampai jumpa besok di venue!</p>
+          <p style="margin-top: 4px;">— Tim Eventra</p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error('[email/reminder-h1] failed:', err);
   }
 }

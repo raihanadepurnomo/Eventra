@@ -1,7 +1,16 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendInstance = null;
 
+function getResend() {
+  if (!resendInstance) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY belum diset');
+    }
+    resendInstance = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendInstance;
+}
 function toRecipientList(value) {
 	if (!value) return [];
 	if (Array.isArray(value)) return value.filter(Boolean);
@@ -18,35 +27,26 @@ function escapeHtml(text) {
 }
 
 export async function sendEmail({ to, subject, html, attachments = [] }) {
-	if (!process.env.RESEND_API_KEY) {
-		throw new Error('RESEND_API_KEY belum diset');
+	const recipients = toRecipientList(to);
+	if (recipients.length === 0) {
+		console.warn('[mailer] No recipients specified, skipping email.');
+		return null;
 	}
 
-	const requestedRecipients = toRecipientList(to);
-	const devRedirectTo = (process.env.RESEND_DEV_REDIRECT_TO || '').trim();
-	const useDevRedirect = Boolean(devRedirectTo);
-	const finalRecipients = useDevRedirect ? [devRedirectTo] : requestedRecipients;
-
-	if (useDevRedirect && requestedRecipients.length > 0) {
-		const recipientNote = `<p style="font-size:12px;color:#64748b;margin:0 0 12px 0;"><strong>Dev redirect aktif:</strong> email ini aslinya ditujukan ke ${escapeHtml(requestedRecipients.join(', '))}</p>`;
-		html = `${recipientNote}${html}`;
-	}
-
-	const result = await resend.emails.send({
-		from: process.env.RESEND_FROM_EMAIL || 'Eventra <noreply@eventra.com>',
-		to: finalRecipients,
+	const result = await getResend().emails.send({
+		from: process.env.RESEND_FROM_EMAIL || 'Eventra <noreply@eventra.raihanadepurnomo.dev>',
+		to: recipients,
 		subject,
 		html,
 		attachments,
 	});
 
 	if (result?.error) {
+		console.error('[mailer] Resend Error:', result.error);
 		throw new Error(result.error.message || 'Gagal mengirim email via Resend');
 	}
 
-	if (useDevRedirect && requestedRecipients.length > 0) {
-		console.log(`[mailer] DEV redirect: ${requestedRecipients.join(', ')} -> ${devRedirectTo}`);
-	}
+	console.log(`[mailer] Email sent to ${recipients.join(', ')} (Subject: "${subject}")`);
 
 	return result;
 }

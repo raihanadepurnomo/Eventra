@@ -39,7 +39,7 @@ export function UsernameSetupBanner() {
             ✨ Klaim username-mu!
           </h3>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Dapatkan halaman profil personalmu di <span className="font-mono text-xs font-semibold">eventra.com/[username]</span>
+            Dapatkan halaman profil personalmu di <span className="font-mono text-xs font-semibold">eventra.raihanadepurnomo.dev/[username]</span>
           </p>
         </div>
       </div>

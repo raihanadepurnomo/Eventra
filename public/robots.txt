@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /eo
+Disallow: /admin
+
+Sitemap: https://eventra.raihanadepurnomo.dev/sitemap.xml

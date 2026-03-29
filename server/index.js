@@ -15,10 +15,12 @@ import ticketRoutes from './routes/tickets.js';
 import orderItemRoutes from './routes/orderItems.js';
 import paymentRoutes from './routes/payments.js';
 import socialRoutes from './routes/social.js';
-import resaleRoutes from './routes/resale.js';
+import resaleRoutes, { checkEscrowExpiration } from './routes/resale.js';
 import eoFinanceRoutes from './routes/eoFinance.js';
 import promoRoutes from './routes/promos.js';
 import ticketPricingPhaseRoutes from './routes/ticketPricingPhases.js';
+import publicRoutes from './routes/public.js';
+import { runReminderTask } from './jobs/reminderJob.js';
 import pool from './db.js';
 
 const app = express();
@@ -54,6 +56,8 @@ app.use('/api/resale', resaleRoutes);
 app.use('/api/eo', eoFinanceRoutes);
 app.use('/api', promoRoutes);
 app.use('/api/ticket-pricing-phases', ticketPricingPhaseRoutes);
+app.use('/', publicRoutes);
+app.use('/api', publicRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -79,6 +83,14 @@ async function start() {
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
+      
+      // Run automated background jobs
+      const runBackgroundJobs = async () => {
+        await runReminderTask();
+        await checkEscrowExpiration().catch(e => console.error('[bg/escrow]', e));
+      };
+      runBackgroundJobs();
+      setInterval(runBackgroundJobs, 15 * 60 * 1000); // 15 minutes interval
     });
   } catch (err) {
     console.error('❌ Failed to start server:', err.message);

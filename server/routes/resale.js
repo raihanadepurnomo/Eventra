@@ -149,7 +149,7 @@ const upload = multer({
 });
 
 // Lazy Expiration Helper
-async function checkEscrowExpiration() {
+export async function checkEscrowExpiration() {
     await ensureSellerBalanceTransactionsTable();
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   
