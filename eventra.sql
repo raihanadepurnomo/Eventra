@@ -72,6 +72,7 @@ CREATE TABLE `events` (
   `end_date` text DEFAULT NULL,
   `status` text DEFAULT NULL,
   `is_resale_allowed` tinyint(1) NOT NULL DEFAULT 0,
+  `is_reminder_sent` tinyint(1) DEFAULT 0,
   `created_at` text DEFAULT NULL,
   `updated_at` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -197,7 +197,7 @@ export default function ProfileSettingsPage() {
                        Tampilkan profil saya ke publik
                      </Label>
                      <p className="text-xs text-muted-foreground mt-1 max-w-sm leading-relaxed">
-                       Jika dimatikan, halaman <span className="font-mono">eventra.com/{dbUser?.username || '[username]'}</span> akan disembunyikan.
+                       Jika dimatikan, halaman <span className="font-mono">eventra.raihanadepurnomo.dev/{dbUser?.username || '[username]'}</span> akan disembunyikan.
                      </p>
                    </div>
                    <Switch 

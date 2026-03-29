@@ -103,7 +103,7 @@ export function UsernameInput({
         )}
         {value.length > 0 && validationResult?.available && !isValidating && (
           <p className="text-muted-foreground">
-            eventra.com/<span className="font-semibold text-foreground">{value}</span>
+            eventra.raihanadepurnomo.dev/<span className="font-semibold text-foreground">{value}</span>
           </p>
         )}
         {isValidating && (

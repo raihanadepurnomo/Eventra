@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import { formatDateRange, formatIDR } from '@/lib/utils'
 import { mapEvent, mapTicketType } from './LandingPage'
 import type { Event, TicketType } from '@/types'
+import { SEO } from '@/components/shared/SEO'
 
 const CATEGORIES = ['Semua', 'Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
 
@@ -128,6 +129,11 @@ export default function BrowseEventsPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO 
+        title="Jelajahi Event" 
+        description="Temukan konser, seminar, festival, dan workshop di kotamu."
+        url="https://eventra.raihanadepurnomo.dev/events"
+      />
       <Navbar />
       <main className="flex-1 pt-14">
         <div className="border-b border-border bg-secondary/30">
