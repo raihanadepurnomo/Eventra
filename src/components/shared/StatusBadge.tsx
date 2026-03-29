@@ -36,6 +36,7 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   DRAFT:            { label: 'Draft',        className: 'bg-gray-50 text-gray-600 border-gray-200' },
   EXPIRED:          { label: 'Kedaluwarsa',  className: 'bg-gray-50 text-gray-500 border-gray-200' },
   USED:             { label: 'Digunakan',    className: 'bg-gray-50 text-gray-500 border-gray-200' },
+  TRANSFERRED:      { label: 'Telah Terjual', className: 'bg-sky-50 text-sky-700 border-sky-200' },
 
   // Blue — special
   REFUNDED:         { label: 'Dikembalikan', className: 'bg-blue-50 text-blue-700 border-blue-200' },

@@ -6,11 +6,126 @@ import midtransClient from 'midtrans-client';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  sendResalePaymentSuccessEmail,
+  sendResalePendingPaymentEmail,
+  sendResaleOrderExpiredEmail,
+  sendResaleListingPublishedEmail,
+  sendResaleListingSoldEmail,
+  sendResaleListingExpiredEmail,
+} from '../lib/transactionalEmails.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = Router();
+let sellerBalanceTransactionsTableEnsured = false;
+
+const BALANCE_TX_TYPES = {
+  RESALE_SOLD: 'RESALE_SOLD',
+  LISTING_EXPIRED_COMPENSATION: 'LISTING_EXPIRED_COMPENSATION',
+};
+
+async function ensureSellerBalanceTransactionsTable() {
+  if (sellerBalanceTransactionsTableEnsured) return;
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS seller_balance_transactions (
+      id varchar(50) NOT NULL,
+      seller_balance_id varchar(50) NOT NULL,
+      user_id varchar(50) NOT NULL,
+      type varchar(60) NOT NULL,
+      amount int(11) NOT NULL DEFAULT 0,
+      description varchar(255) DEFAULT NULL,
+      reference_id varchar(100) DEFAULT NULL,
+      created_at datetime DEFAULT current_timestamp(),
+      PRIMARY KEY (id),
+      KEY idx_seller_balance_transactions_user (user_id),
+      KEY idx_seller_balance_transactions_created (created_at),
+      UNIQUE KEY uq_seller_balance_transactions_ref (user_id, type, reference_id),
+      KEY idx_seller_balance_transactions_balance (seller_balance_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`
+  );
+
+  sellerBalanceTransactionsTableEnsured = true;
+}
+
+async function getOrCreateSellerBalanceForUpdate(conn, userId) {
+  const [rows] = await conn.query(
+    `SELECT * FROM seller_balances WHERE user_id = ? FOR UPDATE`,
+    [userId]
+  );
+
+  if (rows.length > 0) {
+    return rows[0];
+  }
+
+  const id = `bal_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
+  await conn.query(
+    `INSERT INTO seller_balances (id, user_id, balance, total_earned)
+     VALUES (?, ?, 0, 0)`,
+    [id, userId]
+  );
+
+  const [createdRows] = await conn.query(
+    `SELECT * FROM seller_balances WHERE id = ? LIMIT 1`,
+    [id]
+  );
+
+  return createdRows[0] || { id, user_id: userId, balance: 0, total_earned: 0 };
+}
+
+async function creditSellerBalanceWithHistory(conn, {
+  userId,
+  amount,
+  type,
+  referenceId,
+  description,
+}) {
+  const normalizedAmount = Math.max(0, Number(amount || 0));
+  if (!userId || !type || !referenceId || normalizedAmount <= 0) {
+    return false;
+  }
+
+  const [existingRows] = await conn.query(
+    `SELECT id FROM seller_balance_transactions
+     WHERE user_id = ? AND type = ? AND reference_id = ?
+     LIMIT 1`,
+    [userId, type, referenceId]
+  );
+  if (existingRows.length > 0) {
+    return false;
+  }
+
+  const balance = await getOrCreateSellerBalanceForUpdate(conn, userId);
+
+  await conn.query(
+    `UPDATE seller_balances
+     SET balance = balance + ?,
+         total_earned = total_earned + ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [normalizedAmount, normalizedAmount, balance.id]
+  );
+
+  const txId = `sbtx_${crypto.randomUUID().replace(/-/g, '').substring(0, 10)}`;
+  await conn.query(
+    `INSERT INTO seller_balance_transactions
+      (id, seller_balance_id, user_id, type, amount, description, reference_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      txId,
+      balance.id,
+      userId,
+      type,
+      normalizedAmount,
+      description || null,
+      referenceId,
+    ]
+  );
+
+  return true;
+}
 
 // Configure multer for payout receipts
 const storage = multer.diskStorage({
@@ -35,20 +150,64 @@ const upload = multer({
 
 // Lazy Expiration Helper
 async function checkEscrowExpiration() {
+    await ensureSellerBalanceTransactionsTable();
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   
   // 1. Expire Listings (7 days)
   const [expiredListings] = await pool.query(
-    `SELECT id, ticket_id FROM resale_listings WHERE status = 'OPEN' AND expired_at < ?`,
+    `SELECT id, ticket_id, seller_id, original_price, asking_price
+     FROM resale_listings
+     WHERE status = 'OPEN' AND expired_at < ?`,
     [now]
   );
   
   if (expiredListings.length > 0) {
-    const ids = expiredListings.map(l => l.id);
-    const ticketIds = expiredListings.map(l => l.ticket_id);
-    
-    await pool.query(`UPDATE resale_listings SET status = 'EXPIRED' WHERE id IN (?)`, [ids]);
-    await pool.query(`UPDATE tickets SET status = 'ACTIVE' WHERE id IN (?)`, [ticketIds]);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      for (const listing of expiredListings) {
+        await conn.query(
+          `UPDATE resale_listings
+           SET status = 'EXPIRED'
+           WHERE id = ? AND status = 'OPEN'`,
+          [listing.id]
+        );
+
+        await conn.query(
+          `UPDATE tickets
+           SET status = 'CANCELLED', is_used = 1
+           WHERE id = ?`,
+          [listing.ticket_id]
+        );
+
+        const compensationAmount = Math.max(0, Number(listing.original_price || 0));
+        if (compensationAmount > 0) {
+          await creditSellerBalanceWithHistory(conn, {
+            userId: listing.seller_id,
+            amount: compensationAmount,
+            type: BALANCE_TX_TYPES.LISTING_EXPIRED_COMPENSATION,
+            referenceId: listing.id,
+            description: 'Kompensasi listing resale expired',
+          });
+        }
+      }
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    for (const listing of expiredListings) {
+      try {
+        await sendResaleListingExpiredEmail(pool, listing.id, 'expired');
+      } catch (mailErr) {
+        console.error('[resale/expire-listing][email]', listing.id, mailErr?.message || mailErr);
+      }
+    }
   }
 
   // 2. Expire Orders (15 minutes)
@@ -60,6 +219,14 @@ async function checkEscrowExpiration() {
   if (expiredOrders.length > 0) {
     const ids = expiredOrders.map(o => o.id);
     await pool.query(`UPDATE resale_orders SET status = 'EXPIRED' WHERE id IN (?)`, [ids]);
+
+    for (const order of expiredOrders) {
+      try {
+        await sendResaleOrderExpiredEmail(pool, order.id, 'expired');
+      } catch (mailErr) {
+        console.error('[resale/expire-order][email]', order.id, mailErr?.message || mailErr);
+      }
+    }
   }
 }
 
@@ -113,7 +280,7 @@ router.post('/listings', authenticateToken, requireVerifiedEmail, async (req, re
 
     // 1. Validasi Tiket
     const [tickets] = await pool.query(
-      `SELECT t.*, tt.price as original_price, tt.sale_end_date, e.start_date, e.is_resale_allowed
+      `SELECT t.*, tt.price as original_price, tt.sale_end_date, tt.is_bundle, e.start_date, e.is_resale_allowed
        FROM tickets t
        JOIN ticket_types tt ON t.ticket_type_id = tt.id
        JOIN events e ON tt.event_id = e.id
@@ -127,6 +294,18 @@ router.post('/listings', authenticateToken, requireVerifiedEmail, async (req, re
     // Validasi apakah EO mengizinkan resale untuk event ini
     if (!ticket.is_resale_allowed) {
       return res.status(403).json({ error: 'EO tidak mengizinkan resale untuk event ini' });
+    }
+
+    if (Number(ticket.is_bundle || 0) === 1 || Number(ticket.bundle_total || 1) > 1) {
+      return res.status(400).json({ error: 'Tiket bundling tidak dapat dijual kembali.' });
+    }
+
+    if (Number(ticket.quantity || 1) > 1) {
+      return res.status(400).json({ error: 'Tiket ini masih format multi-qty lama. Buka ulang dashboard agar tiket dipisah otomatis, lalu pilih tiket yang ingin dijual.' });
+    }
+
+    if (String(ticket.order_id || '').startsWith('rord_')) {
+      return res.status(400).json({ error: 'Tiket hasil resale tidak dapat diperjualbelikan lagi.' });
     }
 
     if (ticket.status !== 'ACTIVE') return res.status(400).json({ error: 'Tiket harus berstatus ACTIVE' });
@@ -173,6 +352,12 @@ router.post('/listings', authenticateToken, requireVerifiedEmail, async (req, re
 
     // 5. Update Ticket Status
     await pool.query(`UPDATE tickets SET status = 'LISTED_FOR_RESALE' WHERE id = ?`, [ticket_id]);
+
+    try {
+      await sendResaleListingPublishedEmail(pool, id);
+    } catch (mailErr) {
+      console.error('[resale/listing-published][email]', id, mailErr?.message || mailErr);
+    }
 
     res.status(201).json({ id, status: 'OPEN' });
   } catch (err) {
@@ -356,6 +541,24 @@ router.get('/balance', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/resale/balance/history
+router.get('/balance/history', authenticateToken, async (req, res) => {
+  try {
+    await ensureSellerBalanceTransactionsTable();
+    const [rows] = await pool.query(
+      `SELECT *
+       FROM seller_balance_transactions
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[resale/balance/history]', err);
+    res.status(500).json({ error: 'Gagal memuat riwayat saldo' });
+  }
+});
+
 // POST /api/resale/balance/withdraw
 router.post('/balance/withdraw', authenticateToken, requireVerifiedEmail, async (req, res) => {
   try {
@@ -407,10 +610,21 @@ router.post('/balance/withdraw', authenticateToken, requireVerifiedEmail, async 
 });
 
 // Processing logic for resale payments (shared between webhook & check status)
-export async function handleResalePaymentStatus(order_id, transaction_status, fraud_status) {
+export async function handleResalePaymentStatus(
+  order_id,
+  transaction_status,
+  fraud_status,
+  payment_method = null,
+  midtransData = null
+) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    let shouldSendSuccessEmail = false;
+    let shouldSendPendingEmail = false;
+    let shouldSendExpiredEmail = false;
+    let expiredReason = 'expired';
 
     // 1. Find resale order with row lock
     const [resaleOrders] = await connection.query(`SELECT * FROM resale_orders WHERE id = ? FOR UPDATE`, [order_id]);
@@ -430,12 +644,37 @@ export async function handleResalePaymentStatus(order_id, transaction_status, fr
     if (transaction_status === 'capture' || transaction_status === 'settlement') {
       if (!fraud_status || fraud_status === 'accept') newStatus = 'PAID';
     } else if (['cancel', 'deny', 'expire'].includes(transaction_status)) {
-      newStatus = 'CANCELLED';
+      newStatus = transaction_status === 'expire' ? 'EXPIRED' : 'CANCELLED';
+      expiredReason = transaction_status === 'expire' ? 'expired' : 'failed';
+    } else if (transaction_status === 'pending') {
+      newStatus = 'PENDING';
+    }
+
+    const resolvedPaymentMethod = payment_method || (transaction_status === 'pending' ? 'pending' : null);
+
+    if (resolvedPaymentMethod && !rOrder.payment_method) {
+      await connection.query(
+        `UPDATE resale_orders
+         SET payment_method = ?
+         WHERE id = ? AND (payment_method IS NULL OR payment_method = '')`,
+        [resolvedPaymentMethod, rOrder.id]
+      );
+    }
+
+    if (transaction_status === 'pending' && rOrder.status === 'PENDING' && !rOrder.payment_method) {
+      shouldSendPendingEmail = true;
     }
 
     if (newStatus === 'PAID') {
       // 2. Update Order
-      await connection.query(`UPDATE resale_orders SET status = 'PAID', paid_at = CURRENT_TIMESTAMP WHERE id = ?`, [rOrder.id]);
+      await connection.query(
+        `UPDATE resale_orders
+         SET status = 'PAID',
+             paid_at = CURRENT_TIMESTAMP,
+             payment_method = COALESCE(NULLIF(payment_method, ''), ?)
+         WHERE id = ?`,
+        [resolvedPaymentMethod || null, rOrder.id]
+      );
 
       // 3. Get Listing
       const [listings] = await connection.query(`SELECT * FROM resale_listings WHERE id = ?`, [rOrder.resale_listing_id]);
@@ -454,35 +693,63 @@ export async function handleResalePaymentStatus(order_id, transaction_status, fr
       const finalAttendeeDetails = rOrder.attendee_details || oldTicket.attendee_details;
 
       await connection.query(
-        `INSERT INTO tickets (id, order_id, user_id, ticket_type_id, qr_code, status, is_used, created_at, quantity, attendee_details, order_item_id)
-         VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0, CURRENT_TIMESTAMP, ?, ?, NULL)`,
-        [newTicketId, rOrder.id, rOrder.buyer_id, oldTicket.ticket_type_id, newQr, oldTicket.quantity, finalAttendeeDetails]
+        `INSERT INTO tickets (
+          id, order_id, user_id, ticket_type_id, qr_code, status, is_used, created_at,
+          quantity, attendee_details, order_item_id, bundle_index, bundle_total
+        ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0, CURRENT_TIMESTAMP, ?, ?, NULL, ?, ?)`,
+        [
+          newTicketId,
+          rOrder.id,
+          rOrder.buyer_id,
+          oldTicket.ticket_type_id,
+          newQr,
+          oldTicket.quantity,
+          finalAttendeeDetails,
+          Number(oldTicket.bundle_index || 1),
+          Number(oldTicket.bundle_total || 1),
+        ]
       );
 
       // 6. Update Seller Balance
-      const [balances] = await connection.query(`SELECT * FROM seller_balances WHERE user_id = ?`, [listing.seller_id]);
-      if (balances.length === 0) {
-        const balId = `bal_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
-        await connection.query(
-          `INSERT INTO seller_balances (id, user_id, balance, total_earned) VALUES (?, ?, ?, ?)`,
-          [balId, listing.seller_id, rOrder.seller_receives, rOrder.seller_receives]
-        );
-      } else {
-        await connection.query(
-          `UPDATE seller_balances SET balance = balance + ?, total_earned = total_earned + ? WHERE id = ?`,
-          [rOrder.seller_receives, rOrder.seller_receives, balances[0].id]
-        );
+      await creditSellerBalanceWithHistory(connection, {
+        userId: listing.seller_id,
+        amount: Number(rOrder.seller_receives || 0),
+        type: BALANCE_TX_TYPES.RESALE_SOLD,
+        referenceId: rOrder.id,
+        description: `Pendapatan resale tiket (${listing.id})`,
+      });
+
+      shouldSendSuccessEmail = true;
+      await connection.commit();
+
+      if (shouldSendSuccessEmail) {
+        await sendResalePaymentSuccessEmail(pool, rOrder.id, resolvedPaymentMethod || null);
+        await sendResaleListingSoldEmail(pool, rOrder.id);
       }
 
-      await connection.commit();
       return { status: 'PAID' };
     } else if (newStatus !== rOrder.status) {
       await connection.query(`UPDATE resale_orders SET status = ? WHERE id = ?`, [newStatus, rOrder.id]);
+
+      if ((newStatus === 'CANCELLED' || newStatus === 'EXPIRED') && rOrder.status === 'PENDING') {
+        shouldSendExpiredEmail = true;
+      }
+
       await connection.commit();
+
+      if (shouldSendExpiredEmail) {
+        await sendResaleOrderExpiredEmail(pool, rOrder.id, expiredReason);
+      }
+
       return { status: newStatus };
     }
     
     await connection.commit();
+
+    if (shouldSendPendingEmail) {
+      await sendResalePendingPaymentEmail(pool, rOrder.id, midtransData || {});
+    }
+
     return { status: rOrder.status };
   } catch (err) {
     if (connection) await connection.rollback();
@@ -496,8 +763,8 @@ export async function handleResalePaymentStatus(order_id, transaction_status, fr
 // Webhook for payment (can be called by Midtrans)
 router.post('/payment/webhook', async (req, res) => {
   try {
-    const { order_id, transaction_status, fraud_status } = req.body;
-    await handleResalePaymentStatus(order_id, transaction_status, fraud_status);
+    const { order_id, transaction_status, fraud_status, payment_type } = req.body;
+    await handleResalePaymentStatus(order_id, transaction_status, fraud_status, payment_type || null, req.body || null);
     res.json({ status: 'ok' });
   } catch (err) {
     res.status(500).json({ error: 'Webhook failed' });
@@ -654,10 +921,24 @@ router.get('/admin/balances', authenticateToken, async (req, res) => {
         try {
           const [revRes] = await pool.query(`
             SELECT 
-              IFNULL(SUM(oi.subtotal), 0) as totalRevenue,
+              IFNULL((
+                SELECT SUM(oi2.subtotal)
+                FROM order_items oi2
+                JOIN orders o2 ON oi2.order_id = o2.id
+                JOIN ticket_types tt2 ON oi2.ticket_type_id = tt2.id
+                JOIN events e2 ON tt2.event_id = e2.id
+                WHERE e2.eo_profile_id = ?
+                  AND o2.status = 'PAID'
+              ), 0) as totalRevenue,
               IFNULL(SUM(CASE 
                 WHEN t.status IN ('USED', 'TRANSFERRED') OR e.start_date < CURRENT_DATE() 
-                THEN (oi.subtotal / oi.quantity)
+                THEN (
+                  (oi.subtotal * GREATEST(1, COALESCE(t.quantity, 1))) /
+                  GREATEST(1, CASE
+                    WHEN COALESCE(tt.is_bundle, 0) = 1 THEN oi.quantity * GREATEST(2, COALESCE(tt.bundle_qty, 2))
+                    ELSE oi.quantity
+                  END)
+                )
                 ELSE 0 
               END), 0) as withdrawableRevenue
             FROM order_items oi
@@ -667,7 +948,7 @@ router.get('/admin/balances', authenticateToken, async (req, res) => {
             JOIN events e ON tt.event_id = e.id
             WHERE e.eo_profile_id = ? 
               AND o.status = 'PAID'
-          `, [row.eo_profile_id]);
+          `, [row.eo_profile_id, row.eo_profile_id]);
           
           const totalEarned = Number(revRes[0].totalRevenue);
           const withdrawableRevenue = Number(revRes[0].withdrawableRevenue);

@@ -48,6 +48,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/order-items', orderItemRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/resale', resaleRoutes);
 app.use('/api/eo', eoFinanceRoutes);

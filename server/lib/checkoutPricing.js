@@ -63,10 +63,10 @@ export function calculatePromoDiscount(promo, subtotal) {
 
 export async function getActivePricingPhase(conn, ticketTypeId, referenceDate = new Date()) {
   const [phaseRows] = await conn.query(
-    `SELECT id, ticket_type_id, phase_name, price, quota, quota_sold, start_date, end_date, sort_order
+    `SELECT id, ticket_type_id, phase_name, price, quota, quota_sold, start_date, end_date
      FROM ticket_pricing_phases
      WHERE ticket_type_id = ?
-     ORDER BY sort_order ASC, created_at ASC`,
+     ORDER BY start_date ASC, created_at ASC`,
     [ticketTypeId]
   );
 
@@ -88,20 +88,27 @@ export async function getActivePricingPhase(conn, ticketTypeId, referenceDate = 
 export async function enrichTicketTypeWithActivePricing(conn, ticketTypeRow, referenceDate = new Date()) {
   const { hasPhases, activePhase } = await getActivePricingPhase(conn, ticketTypeRow.id, referenceDate);
   const fallbackPrice = Number(ticketTypeRow.price || 0);
+  const baseSaleActive = isWithinRange(referenceDate, ticketTypeRow.sale_start_date, ticketTypeRow.sale_end_date);
+  const activePhasePrice = activePhase ? Number(activePhase.price || 0) : null;
+  const useFallbackBecauseZeroPhasePrice = Boolean(activePhase) && activePhasePrice <= 0 && fallbackPrice > 0;
+  const effectivePrice = activePhase
+    ? (useFallbackBecauseZeroPhasePrice ? fallbackPrice : activePhasePrice)
+    : fallbackPrice;
+  const hasSellablePrice = (Boolean(activePhase) || baseSaleActive) && effectivePrice >= 0;
 
   return {
     ...ticketTypeRow,
     has_pricing_phases: hasPhases ? 1 : 0,
     active_phase_id: activePhase?.id || null,
     active_phase_name: activePhase?.phase_name || null,
-    active_phase_price: activePhase ? Number(activePhase.price || 0) : null,
+    active_phase_price: activePhasePrice,
     active_phase_end_date: activePhase?.end_date || null,
     active_phase_quota_remaining:
       activePhase && activePhase.quota !== null
         ? Math.max(0, Number(activePhase.quota) - Number(activePhase.quota_sold || 0))
         : null,
-    effective_price: activePhase ? Number(activePhase.price || 0) : fallbackPrice,
-    is_price_unavailable: hasPhases && !activePhase ? 1 : 0,
+    effective_price: effectivePrice,
+    is_price_unavailable: hasSellablePrice ? 0 : 1,
   };
 }
 
@@ -130,7 +137,8 @@ export async function buildOrderPricingContext(conn, items, userId, lockTicketRo
 
     const lockClause = lockTicketRows ? 'FOR UPDATE' : '';
     const [ticketRows] = await conn.query(
-      `SELECT id, event_id, name, price, quota, sold, max_per_order, max_per_account
+      `SELECT id, event_id, name, price, quota, sold, max_per_order, max_per_account,
+              sale_start_date, sale_end_date, is_bundle, bundle_qty
        FROM ticket_types
        WHERE id = ?
        ${lockClause}`,
@@ -163,18 +171,33 @@ export async function buildOrderPricingContext(conn, items, userId, lockTicketRo
     }
 
     if (maxPerAccount > 0) {
-      const [ownedRows] = await conn.query(
-        `SELECT COALESCE(SUM(t.quantity), 0) AS total_owned
-         FROM tickets t
-         JOIN orders o ON o.id = t.order_id
-         WHERE t.ticket_type_id = ?
-           AND t.user_id = ?
-           AND o.status = 'PAID'
-           AND t.status NOT IN ('CANCELLED', 'TRANSFERRED')`,
-        [ticketTypeId, userId]
-      );
+      let totalOwned = 0;
+      if (Number(ticketType.is_bundle || 0)) {
+        const [ownedRows] = await conn.query(
+          `SELECT COUNT(*) AS total_owned
+           FROM tickets t
+           JOIN orders o ON o.id = t.order_id
+           WHERE t.ticket_type_id = ?
+             AND t.user_id = ?
+             AND o.status = 'PAID'
+             AND t.status NOT IN ('CANCELLED', 'TRANSFERRED')`,
+          [ticketTypeId, userId]
+        );
+        totalOwned = Number(ownedRows[0]?.total_owned || 0);
+      } else {
+        const [ownedRows] = await conn.query(
+          `SELECT COALESCE(SUM(t.quantity), 0) AS total_owned
+           FROM tickets t
+           JOIN orders o ON o.id = t.order_id
+           WHERE t.ticket_type_id = ?
+             AND t.user_id = ?
+             AND o.status = 'PAID'
+             AND t.status NOT IN ('CANCELLED', 'TRANSFERRED')`,
+          [ticketTypeId, userId]
+        );
+        totalOwned = Number(ownedRows[0]?.total_owned || 0);
+      }
 
-      const totalOwned = Number(ownedRows[0]?.total_owned || 0);
       const totalAfterPurchase = totalOwned + quantity;
       if (totalAfterPurchase > maxPerAccount) {
         const remainingAllowed = Math.max(0, maxPerAccount - totalOwned);
@@ -185,9 +208,11 @@ export async function buildOrderPricingContext(conn, items, userId, lockTicketRo
       }
     }
 
-    const { hasPhases, activePhase } = await getActivePricingPhase(conn, ticketTypeId, new Date());
-    if (hasPhases && !activePhase) {
-      throw asBadRequest(`Harga tiket ${ticketType.name} saat ini tidak tersedia.`);
+    const referenceDate = new Date();
+    const { activePhase } = await getActivePricingPhase(conn, ticketTypeId, referenceDate);
+    const baseSaleActive = isWithinRange(referenceDate, ticketType.sale_start_date, ticketType.sale_end_date);
+    if (!activePhase && !baseSaleActive) {
+      throw asBadRequest(`Tiket ${ticketType.name} saat ini belum / tidak dalam masa penjualan.`);
     }
 
     const attendeeJson = item.attendee_details
@@ -204,6 +229,10 @@ export async function buildOrderPricingContext(conn, items, userId, lockTicketRo
       eventId: ticketType.event_id,
       ticketName: ticketType.name,
       quantity,
+      isBundle: Number(ticketType.is_bundle || 0) === 1,
+      bundleQty: Number(ticketType.is_bundle || 0) === 1
+        ? Math.max(2, Math.min(10, Number(ticketType.bundle_qty || 1)))
+        : 1,
       unitPrice,
       subtotal: itemSubtotal,
       attendeeJson,

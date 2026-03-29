@@ -14,6 +14,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { formatDate, formatIDR } from '@/lib/utils'
 import type { Ticket, TicketType, Event } from '@/types'
 
+type SellableTicketOption = {
+  id: string
+  attendeeName: string
+  attendeeEmail?: string
+  attendeePhone?: string
+}
+
 export default function ResaleSellTicketPage() {
   const { ticketId } = useParams({ from: '/dashboard/tickets/$ticketId/sell' })
   const navigate = useNavigate()
@@ -22,12 +29,29 @@ export default function ResaleSellTicketPage() {
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [ticketType, setTicketType] = useState<TicketType | null>(null)
   const [event, setEvent] = useState<Event | null>(null)
+  const [sellableTickets, setSellableTickets] = useState<SellableTicketOption[]>([])
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   
   const [askingPrice, setAskingPrice] = useState<number>(0)
   const [note, setNote] = useState('')
   const [agree, setAgree] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  function getPrimaryAttendee(ticketRow: Ticket): { name?: string; email?: string; phone?: string } {
+    if (!Array.isArray(ticketRow.attendeeDetails)) {
+      return {}
+    }
+    const first = ticketRow.attendeeDetails[0]
+    if (!first || typeof first !== 'object') {
+      return {}
+    }
+    return {
+      name: String((first as any).name || ''),
+      email: String((first as any).email || ''),
+      phone: String((first as any).phone || ''),
+    }
+  }
 
   useEffect(() => {
     loadData()
@@ -40,13 +64,61 @@ export default function ResaleSellTicketPage() {
       const t = mapTicket(rawTicket)
       setTicket(t)
 
+      if (String(t.orderId || '').startsWith('rord_')) {
+        toast.error('Tiket hasil pembelian resale tidak dapat dijual kembali.')
+        navigate({ to: '/dashboard' })
+        return
+      }
+
       const rawTT: any = await api.get(`/ticket-types/${t.ticketTypeId}`)
       const tt = mapTicketType(rawTT)
+
+      if (Number(t.bundleTotal || 1) > 1 || tt.isBundle) {
+        toast.error('Tiket bundling tidak dapat dijual kembali.')
+        navigate({ to: '/dashboard' })
+        return
+      }
+
       setTicketType(tt)
       setAskingPrice(tt.price) // Default to original price
 
       const rawEv: any = await api.get(`/events/${tt.eventId}`)
       setEvent(mapEvent(rawEv))
+
+      const rawSameOrderTickets: any[] = await api.get(`/tickets?user_id=${t.userId}&order_id=${t.orderId}`)
+      const sameOrderTickets = Array.isArray(rawSameOrderTickets)
+        ? rawSameOrderTickets.map(mapTicket)
+        : []
+
+      const options: SellableTicketOption[] = sameOrderTickets
+        .filter((item) => {
+          const active = item.status === 'ACTIVE' && !item.isUsed
+          const nonBundle = Number(item.bundleTotal || 1) <= 1
+          const notResaleOrigin = !String(item.orderId || '').startsWith('rord_')
+          return active && nonBundle && notResaleOrigin && item.ticketTypeId === t.ticketTypeId
+        })
+        .map((item) => {
+          const attendee = getPrimaryAttendee(item)
+          return {
+            id: item.id,
+            attendeeName: attendee.name || `Pemilik tiket ${item.id.slice(0, 8).toUpperCase()}`,
+            attendeeEmail: attendee.email || undefined,
+            attendeePhone: attendee.phone || undefined,
+          }
+        })
+
+      if (options.length === 0) {
+        toast.error('Tidak ada tiket aktif yang bisa dijual untuk transaksi ini.')
+        navigate({ to: '/dashboard' })
+        return
+      }
+
+      setSellableTickets(options)
+      if (options.some((opt) => opt.id === t.id)) {
+        setSelectedTicketIds([t.id])
+      } else {
+        setSelectedTicketIds([options[0].id])
+      }
     } catch (err: any) {
       toast.error(err.message || 'Gagal memuat data tiket')
       navigate({ to: '/dashboard' })
@@ -60,6 +132,10 @@ export default function ResaleSellTicketPage() {
   const minAllowedPrice = Math.round(originalPrice * 0.5)
   const platformFee = Math.round(askingPrice * 0.05)
   const sellerReceives = askingPrice - platformFee
+  const selectedCount = selectedTicketIds.length
+  const totalListingPrice = askingPrice * selectedCount
+  const totalPlatformFee = platformFee * selectedCount
+  const totalSellerReceives = sellerReceives * selectedCount
 
   function promptVerifyEmail() {
     if (!dbUser?.email) {
@@ -77,6 +153,24 @@ export default function ResaleSellTicketPage() {
         window.location.href = `/verify-otp?${q.toString()}`
       },
     })
+  }
+
+  function toggleTicketSelection(id: string) {
+    setSelectedTicketIds((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((ticketId) => ticketId !== id)
+      }
+      return [...prev, id]
+    })
+  }
+
+  function selectAllTickets() {
+    setSelectedTicketIds(sellableTickets.map((item) => item.id))
+  }
+
+  function selectOnlyCurrentTicket() {
+    if (!ticket?.id) return
+    setSelectedTicketIds([ticket.id])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -97,15 +191,35 @@ export default function ResaleSellTicketPage() {
       toast.error(`Harga minimal adalah ${formatIDR(minAllowedPrice)}`)
       return
     }
+    if (selectedTicketIds.length === 0) {
+      toast.error('Pilih minimal satu tiket yang ingin dijual.')
+      return
+    }
 
     setSubmitting(true)
     try {
-      await api.post('/resale/listings', {
-        ticketId,
-        askingPrice,
-        note
-      })
-      toast.success('Tiket berhasil didaftarkan untuk dijual!')
+      const results = await Promise.allSettled(
+        selectedTicketIds.map((id) => api.post('/resale/listings', {
+          ticketId: id,
+          askingPrice,
+          note,
+        }))
+      )
+
+      const successCount = results.filter((result) => result.status === 'fulfilled').length
+      const failed = results.filter((result) => result.status === 'rejected') as PromiseRejectedResult[]
+
+      if (successCount <= 0) {
+        const firstError = failed[0]?.reason?.message || 'Gagal mendaftarkan tiket'
+        throw new Error(firstError)
+      }
+
+      if (failed.length > 0) {
+        toast.success(`${successCount} tiket berhasil didaftarkan. ${failed.length} tiket gagal diproses.`)
+      } else {
+        toast.success(`${successCount} tiket berhasil didaftarkan untuk dijual!`)
+      }
+
       navigate({ to: '/dashboard/resale' })
     } catch (err: any) {
       toast.error(err.message || 'Gagal mendaftarkan tiket')
@@ -166,6 +280,55 @@ export default function ResaleSellTicketPage() {
                 </div>
               </section>
 
+              <section className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground uppercase tracking-wider">
+                  <div className="w-1.5 h-4 bg-accent rounded-full" />
+                  Pilih Tiket Yang Dijual
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    className="px-2.5 py-1 rounded-md border border-border bg-background hover:bg-muted"
+                    onClick={selectOnlyCurrentTicket}
+                  >
+                    Hanya tiket ini
+                  </button>
+                  <button
+                    type="button"
+                    className="px-2.5 py-1 rounded-md border border-border bg-background hover:bg-muted"
+                    onClick={selectAllTickets}
+                  >
+                    Pilih semua tiket transaksi ini
+                  </button>
+                  <span className="text-muted-foreground">Terpilih: {selectedTicketIds.length} tiket</span>
+                </div>
+
+                <div className="space-y-2">
+                  {sellableTickets.map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/20 hover:bg-muted/40 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 w-4 h-4 rounded border-border text-accent focus:ring-accent"
+                        checked={selectedTicketIds.includes(item.id)}
+                        onChange={() => toggleTicketSelection(item.id)}
+                      />
+                      <div className="min-w-0 text-xs">
+                        <p className="font-semibold text-foreground truncate">{item.attendeeName}</p>
+                        <p className="text-muted-foreground">
+                          {item.attendeeEmail || '-'}
+                          {item.attendeePhone ? ` | ${item.attendeePhone}` : ''}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Ticket ID: {item.id}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
               {/* Pricing Section */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-foreground uppercase tracking-wider">
@@ -197,18 +360,28 @@ export default function ResaleSellTicketPage() {
 
                   <div className="bg-muted/30 rounded-xl p-4 space-y-3">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Harga Jual</span>
+                      <span className="text-muted-foreground">Harga Jual per Tiket</span>
                       <span className="font-mono text-foreground">{formatIDR(askingPrice)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1.5">
-                        Fee Platform (5%) <HelpCircle size={12} className="text-muted-foreground/50" />
+                        Fee Platform (5%) per Tiket <HelpCircle size={12} className="text-muted-foreground/50" />
                       </span>
                       <span className="font-mono text-destructive">-{formatIDR(platformFee)}</span>
                     </div>
+                    <div className="pt-2 border-t border-border/60 space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Harga Listing ({selectedCount} tiket)</span>
+                        <span className="font-mono text-foreground">{formatIDR(totalListingPrice)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Fee Platform</span>
+                        <span className="font-mono text-destructive">-{formatIDR(totalPlatformFee)}</span>
+                      </div>
+                    </div>
                     <div className="pt-3 border-t border-border flex justify-between items-center">
-                      <span className="font-bold text-foreground italic">Yang kamu terima</span>
-                      <span className="text-lg font-mono font-bold text-accent">{formatIDR(sellerReceives)}</span>
+                      <span className="font-bold text-foreground italic">Total yang kamu terima</span>
+                      <span className="text-lg font-mono font-bold text-accent">{formatIDR(totalSellerReceives)}</span>
                     </div>
                   </div>
                 </div>

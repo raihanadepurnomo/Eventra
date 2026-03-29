@@ -17,7 +17,20 @@ import { cn } from '@/lib/utils'
 const CATEGORIES = ['Konser', 'Seminar', 'Festival', 'Workshop', 'Exhibition', 'Sports', 'Lainnya']
 
 interface PricingPhaseForm { phaseName: string; price: string; quota: string; startDate: string; endDate: string }
-interface TicketForm { name: string; description: string; price: string; quota: string; maxPerOrder: string; maxPerAccount: string; saleStartDate: string; saleEndDate: string; pricingEnabled: boolean; phases: PricingPhaseForm[] }
+interface TicketForm {
+  name: string
+  description: string
+  price: string
+  quota: string
+  maxPerOrder: string
+  maxPerAccount: string
+  isBundle: boolean
+  bundleQty: string
+  saleStartDate: string
+  saleEndDate: string
+  pricingEnabled: boolean
+  phases: PricingPhaseForm[]
+}
 interface EventForm { title: string; category: string; description: string; bannerImage: string; bannerFile: File | null; startDate: string; endDate: string; location: string; locationUrl: string; isResaleAllowed: boolean }
 
 const defaultPhase = (phaseName = 'Early Bird'): PricingPhaseForm => ({ phaseName, price: '0', quota: '', startDate: '', endDate: '' })
@@ -28,6 +41,8 @@ const defaultTicket = (): TicketForm => ({
   quota: '100',
   maxPerOrder: '5',
   maxPerAccount: '0',
+  isBundle: false,
+  bundleQty: '2',
   saleStartDate: '',
   saleEndDate: '',
   pricingEnabled: false,
@@ -35,6 +50,31 @@ const defaultTicket = (): TicketForm => ({
 })
 
 const STEPS = ['Info Dasar', 'Jadwal & Lokasi', 'Jenis Tiket', 'Review & Publish']
+
+function toMillis(value: string) {
+  const ms = new Date(value).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
+function findOverlappingPhases(phases: PricingPhaseForm[]) {
+  for (let i = 0; i < phases.length; i += 1) {
+    const aStart = toMillis(phases[i].startDate)
+    const aEnd = toMillis(phases[i].endDate)
+    if (aStart === null || aEnd === null) continue
+
+    for (let j = i + 1; j < phases.length; j += 1) {
+      const bStart = toMillis(phases[j].startDate)
+      const bEnd = toMillis(phases[j].endDate)
+      if (bStart === null || bEnd === null) continue
+
+      if (aStart <= bEnd && bStart <= aEnd) {
+        return [i, j] as const
+      }
+    }
+  }
+
+  return null
+}
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -66,8 +106,21 @@ export default function EOCreateEventPage() {
     setForm((f) => ({ ...f, [field]: val }))
   }
 
-  function updateTicket(idx: number, field: keyof TicketForm, val: string) {
+  function updateTicket(idx: number, field: keyof TicketForm, val: string | boolean) {
     setTickets((prev) => prev.map((t, i) => i === idx ? { ...t, [field]: val } : t))
+  }
+
+  function setTicketBundleMode(ticketIdx: number, checked: boolean) {
+    setTickets((prev) => prev.map((ticket, idx) => {
+      if (idx !== ticketIdx) return ticket
+
+      const normalizedBundleQty = Math.max(2, Number(ticket.bundleQty || 2))
+      return {
+        ...ticket,
+        isBundle: checked,
+        bundleQty: checked ? String(normalizedBundleQty) : '1',
+      }
+    }))
   }
 
   function updateTicketPhase(ticketIdx: number, phaseIdx: number, field: keyof PricingPhaseForm, value: string) {
@@ -116,12 +169,31 @@ export default function EOCreateEventPage() {
         if (Number(t.quota) < 1) { toast.error('Kuota tiket harus lebih dari 0'); return false }
         if (Number(t.maxPerOrder) < 1) { toast.error('Batas per transaksi minimal 1 tiket'); return false }
         if (Number(t.maxPerAccount) < 0) { toast.error('Batas per akun tidak boleh negatif'); return false }
+        if (t.isBundle) {
+          const bq = Number(t.bundleQty)
+          if (!Number.isInteger(bq) || bq < 2 || bq > 10) {
+            toast.error('Jumlah tiket bundling per paket wajib 2 sampai 10')
+            return false
+          }
+        }
         if (!t.saleStartDate || !t.saleEndDate) { toast.error('Tanggal penjualan tiket wajib diisi'); return false }
         if (t.pricingEnabled) {
           if (t.phases.length < 1) { toast.error('Minimal 1 fase harga jika pricing bertingkat diaktifkan'); return false }
           for (const phase of t.phases) {
             if (!phase.phaseName.trim()) { toast.error('Nama fase harga wajib diisi'); return false }
             if (Number(phase.price) < 0) { toast.error('Harga fase tidak boleh negatif'); return false }
+            if (!phase.startDate || !phase.endDate) { toast.error('Tanggal mulai & selesai fase wajib diisi'); return false }
+
+            const startMs = toMillis(phase.startDate)
+            const endMs = toMillis(phase.endDate)
+            if (startMs === null || endMs === null) { toast.error('Format tanggal fase tidak valid'); return false }
+            if (startMs >= endMs) { toast.error('Tanggal mulai fase harus lebih awal dari tanggal selesai'); return false }
+          }
+
+          const overlap = findOverlappingPhases(t.phases)
+          if (overlap) {
+            toast.error(`Fase ${overlap[0] + 1} dan Fase ${overlap[1] + 1} bertabrakan. Atur ulang jadwal fase.`)
+            return false
           }
         }
       }
@@ -166,21 +238,27 @@ export default function EOCreateEventPage() {
           id: ticketTypeId, eventId, name: tt.name.trim(),
           description: tt.description.trim() || undefined, price: Number(tt.price),
           quota: Number(tt.quota), sold: 0, maxPerOrder: Number(tt.maxPerOrder) || 5, maxPerAccount: Number(tt.maxPerAccount) || 0,
+          isBundle: tt.isBundle,
+          bundleQty: tt.isBundle ? Number(tt.bundleQty || 2) : 1,
           saleStartDate: new Date(tt.saleStartDate).toISOString(),
           saleEndDate: new Date(tt.saleEndDate).toISOString(),
         })
 
         if (tt.pricingEnabled) {
-          for (let phaseIdx = 0; phaseIdx < tt.phases.length; phaseIdx += 1) {
-            const phase = tt.phases[phaseIdx]
+          const sortedPhases = [...tt.phases].sort((a, b) => {
+            const aMs = toMillis(a.startDate) ?? Number.MAX_SAFE_INTEGER
+            const bMs = toMillis(b.startDate) ?? Number.MAX_SAFE_INTEGER
+            return aMs - bMs
+          })
+
+          for (const phase of sortedPhases) {
             await api.post('/ticket-pricing-phases', {
               ticketTypeId,
               phaseName: phase.phaseName.trim(),
               price: Number(phase.price || 0),
               quota: phase.quota === '' ? null : Number(phase.quota),
-              startDate: phase.startDate ? new Date(phase.startDate).toISOString() : null,
-              endDate: phase.endDate ? new Date(phase.endDate).toISOString() : null,
-              sortOrder: phaseIdx,
+              startDate: new Date(phase.startDate).toISOString(),
+              endDate: new Date(phase.endDate).toISOString(),
             })
           }
         }
@@ -259,6 +337,16 @@ export default function EOCreateEventPage() {
                 <h2 className="text-base font-semibold text-foreground">Jenis Tiket</h2>
                 <Button size="sm" variant="outline" onClick={addTicket}><Plus size={14} className="mr-1" /> Tambah Tiket</Button>
               </div>
+
+              <div className="rounded-xl border border-border bg-card p-3">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pembeda Jenis & Fase Tiket</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">Bundling</span>
+                  <span className="inline-flex items-center rounded-full border border-sky-300 bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-800">Reguler</span>
+                  <span className="inline-flex items-center rounded-full border border-violet-300 bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-800">Fase ON</span>
+                  <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">Fase OFF</span>
+                </div>
+              </div>
               
               <div className="p-4 bg-muted/30 border border-border rounded-xl space-y-2">
                 <div className="flex items-center space-x-2">
@@ -277,10 +365,26 @@ export default function EOCreateEventPage() {
                 </p>
               </div>
 
-              {tickets.map((tt, idx) => (
-                <div key={idx} className="border border-border rounded-xl p-4 space-y-3">
+              {tickets.map((tt, idx) => {
+                const ticketCardTone = tt.isBundle
+                  ? 'border-emerald-300 bg-emerald-50/35'
+                  : 'border-sky-300 bg-sky-50/25'
+                const phaseCardTone = tt.isBundle
+                  ? 'border-emerald-200 bg-emerald-50/45'
+                  : 'border-slate-200 bg-slate-50/70'
+
+                return (
+                <div key={idx} className={cn('border rounded-xl p-4 space-y-3 transition-colors', ticketCardTone)}>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-foreground">Tiket #{idx + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">Tiket #{idx + 1}</span>
+                      <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider', tt.isBundle ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-sky-300 bg-sky-100 text-sky-800')}>
+                        {tt.isBundle ? 'Bundling' : 'Reguler'}
+                      </span>
+                      <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider', tt.pricingEnabled ? 'border-violet-300 bg-violet-100 text-violet-800' : 'border-slate-300 bg-slate-100 text-slate-700')}>
+                        {tt.pricingEnabled ? 'Fase ON' : 'Fase OFF'}
+                      </span>
+                    </div>
                     {tickets.length > 1 && <button onClick={() => removeTicket(idx)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={14} /></button>}
                   </div>
                   <div className="space-y-1.5"><Label>Nama Tiket *</Label><Input placeholder="Contoh: Regular, VIP" value={tt.name} onChange={(e) => updateTicket(idx, 'name', e.target.value)} /></div>
@@ -305,12 +409,34 @@ export default function EOCreateEventPage() {
                       <p className="text-[11px] text-muted-foreground">Isi 0 jika tidak ingin membatasi</p>
                     </div>
                   </div>
+
+                  <div className="rounded-lg border border-border p-3 bg-background/60 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`is-bundle-${idx}`}
+                        type="checkbox"
+                        checked={tt.isBundle}
+                        onChange={(e) => setTicketBundleMode(idx, e.target.checked)}
+                        className="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+                      />
+                      <Label htmlFor={`is-bundle-${idx}`} className="cursor-pointer">Ini adalah tiket bundling</Label>
+                    </div>
+
+                    {tt.isBundle && (
+                      <div className="space-y-1.5 pl-6">
+                        <Label>Jumlah tiket dalam 1 paket</Label>
+                        <Input type="number" min="2" max="10" value={tt.bundleQty} onChange={(e) => updateTicket(idx, 'bundleQty', e.target.value)} />
+                        <p className="text-[11px] text-muted-foreground">Beli 1 paket menghasilkan 1 QR code untuk {tt.bundleQty || '2'} peserta.</p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5"><Label>Mulai Jual *</Label><Input type="datetime-local" value={tt.saleStartDate} onChange={(e) => updateTicket(idx, 'saleStartDate', e.target.value)} /></div>
                     <div className="space-y-1.5"><Label>Selesai Jual *</Label><Input type="datetime-local" value={tt.saleEndDate} onChange={(e) => updateTicket(idx, 'saleEndDate', e.target.value)} /></div>
                   </div>
 
-                  <div className="rounded-lg border border-border p-3 space-y-3 bg-muted/20">
+                  <div className={cn('rounded-lg border p-3 space-y-3', tt.isBundle ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-slate-50/70')}>
                     <div className="flex items-center gap-2">
                       <input
                         id={`pricing-enabled-${idx}`}
@@ -324,10 +450,33 @@ export default function EOCreateEventPage() {
 
                     {tt.pricingEnabled && (
                       <div className="space-y-3">
+                        <div className="rounded-md border border-border bg-background p-2.5 space-y-1.5">
+                          <label className="flex items-center gap-2 text-xs cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-border text-accent focus:ring-accent cursor-not-allowed"
+                              checked={tt.isBundle}
+                              disabled
+                            />
+                            Fase ini untuk tiket bundling (indikator)
+                          </label>
+                          <p className="text-[11px] text-muted-foreground">
+                            {tt.isBundle
+                              ? `Harga/kuota fase dihitung per paket (1 paket = ${Math.max(2, Number(tt.bundleQty || 2))} peserta).`
+                              : 'Harga/kuota fase dihitung per tiket reguler.'}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">Ubah status bundling dari checkbox "Ini adalah tiket bundling" di atas.</p>
+                        </div>
+
                         {tt.phases.map((phase, phaseIdx) => (
-                          <div key={phaseIdx} className="rounded-md border border-border p-3 bg-background space-y-2">
+                          <div key={phaseIdx} className={cn('rounded-md border p-3 bg-background space-y-2', phaseCardTone)}>
                             <div className="flex items-center justify-between">
-                              <p className="text-xs font-semibold text-foreground">Fase {phaseIdx + 1}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-semibold text-foreground">Fase {phaseIdx + 1}</p>
+                                <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider', tt.isBundle ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-sky-300 bg-sky-100 text-sky-800')}>
+                                  {tt.isBundle ? 'Bundle' : 'Reguler'}
+                                </span>
+                              </div>
                               {tt.phases.length > 1 && (
                                 <button
                                   type="button"
@@ -341,10 +490,10 @@ export default function EOCreateEventPage() {
 
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1"><Label className="text-xs">Nama</Label><Input value={phase.phaseName} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'phaseName', e.target.value)} /></div>
-                              <div className="space-y-1"><Label className="text-xs">Harga</Label><Input type="number" min="0" value={phase.price} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'price', e.target.value)} /></div>
-                              <div className="space-y-1"><Label className="text-xs">Kuota fase (opsional)</Label><Input type="number" min="0" value={phase.quota} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'quota', e.target.value)} /></div>
-                              <div className="space-y-1"><Label className="text-xs">Mulai (opsional)</Label><Input type="datetime-local" value={phase.startDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'startDate', e.target.value)} /></div>
-                              <div className="space-y-1 col-span-2"><Label className="text-xs">Selesai (opsional)</Label><Input type="datetime-local" value={phase.endDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'endDate', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Harga {tt.isBundle ? 'per Paket' : 'per Tiket'}</Label><Input type="number" min="0" value={phase.price} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'price', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Kuota fase ({tt.isBundle ? 'paket' : 'tiket'}) (opsional)</Label><Input type="number" min="0" value={phase.quota} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'quota', e.target.value)} /></div>
+                              <div className="space-y-1"><Label className="text-xs">Mulai *</Label><Input type="datetime-local" value={phase.startDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'startDate', e.target.value)} /></div>
+                              <div className="space-y-1 col-span-2"><Label className="text-xs">Selesai *</Label><Input type="datetime-local" value={phase.endDate} onChange={(e) => updateTicketPhase(idx, phaseIdx, 'endDate', e.target.value)} /></div>
                             </div>
                           </div>
                         ))}
@@ -356,7 +505,7 @@ export default function EOCreateEventPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
 

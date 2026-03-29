@@ -9,6 +9,7 @@ import {
   sendPendingPaymentEmail,
 } from '../lib/transactionalEmails.js';
 import { finalizePaidOrderAccounting } from '../lib/checkoutPricing.js';
+import { generateTicketsForPaidOrder } from '../lib/ticketGeneration.js';
 
 const router = Router();
 
@@ -144,7 +145,13 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
       try {
         const statusResponse = await snap.transaction.status(order_id);
         const { transaction_status, fraud_status } = statusResponse;
-        const result = await handleResalePaymentStatus(order_id, transaction_status, fraud_status);
+        const result = await handleResalePaymentStatus(
+          order_id,
+          transaction_status,
+          fraud_status,
+          statusResponse.payment_type || null,
+          statusResponse
+        );
         return res.json({ status: result.status });
       } catch (err) {
         // If not found in Midtrans, check DB
@@ -212,25 +219,16 @@ router.post('/check/:id', authenticateToken, async (req, res) => {
         return res.json({ status: 'PAID' });
       }
       
-      // 2. Generate Tickets
-      const [items] = await pool.query('SELECT * FROM order_items WHERE order_id = ?', [order_id]);
-      
-      for (const item of items) {
-        const ticketId = `tkt_${Math.random().toString(36).substr(2, 9)}`;
-        const qrCode = `qr_${Math.random().toString(36).substr(2, 12)}`;
-        const attendeeData = typeof item.attendee_details === 'string' ? item.attendee_details : JSON.stringify(item.attendee_details);
-
-        await pool.query(
-          `INSERT INTO tickets (id, order_id, user_id, ticket_type_id, qr_code, status, is_used, created_at, quantity, attendee_details, order_item_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [ticketId, order_id, order.user_id, item.ticket_type_id, qrCode, 'ACTIVE', 0, now, item.quantity, attendeeData, item.id]
-        );
-      }
+      const generated = await generateTicketsForPaidOrder(pool, {
+        orderId: order_id,
+        userId: order.user_id,
+        now,
+      });
 
       await finalizePaidOrderAccounting(
         pool,
         order,
-        items,
+        generated.orderItems,
         order.user_id
       );
 
@@ -276,7 +274,13 @@ router.post('/webhook', async (req, res) => {
     
     // Check if it's a resale order
     if (order_id.startsWith('rord_')) {
-      await handleResalePaymentStatus(order_id, transaction_status, fraud_status);
+      await handleResalePaymentStatus(
+        order_id,
+        transaction_status,
+        fraud_status,
+        notification.payment_type || null,
+        notification
+      );
       return res.status(200).json({ status: 'ok' });
     }
     
@@ -327,25 +331,16 @@ router.post('/webhook', async (req, res) => {
         return res.status(200).json({ status: 'ok' });
       }
       
-      // 2. Generate Tickets
-      const [items] = await pool.query('SELECT * FROM order_items WHERE order_id = ?', [order_id]);
-      
-      for (const item of items) {
-        const ticketId = `tkt_${Math.random().toString(36).substr(2, 9)}`;
-        const qrCode = `qr_${Math.random().toString(36).substr(2, 12)}`;
-        const attendeeData = typeof item.attendee_details === 'string' ? item.attendee_details : JSON.stringify(item.attendee_details);
-
-        await pool.query(
-          `INSERT INTO tickets (id, order_id, user_id, ticket_type_id, qr_code, status, is_used, created_at, quantity, attendee_details, order_item_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [ticketId, order_id, order.user_id, item.ticket_type_id, qrCode, 'ACTIVE', 0, now, item.quantity, attendeeData, item.id]
-        );
-      }
+      const generated = await generateTicketsForPaidOrder(pool, {
+        orderId: order_id,
+        userId: order.user_id,
+        now,
+      });
 
       await finalizePaidOrderAccounting(
         pool,
         order,
-        items,
+        generated.orderItems,
         order.user_id
       );
 

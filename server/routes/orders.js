@@ -8,6 +8,12 @@ import {
   finalizePaidOrderAccounting,
   validateAndComputePromo,
 } from '../lib/checkoutPricing.js';
+import {
+  getEventCustomFormFields,
+  mergeCustomFormAnswersIntoOrderItems,
+  validateAndNormalizeCustomFormSubmission,
+} from '../lib/customForms.js';
+import { generateTicketsForPaidOrder } from '../lib/ticketGeneration.js';
 
 const router = Router();
 
@@ -143,7 +149,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
   let conn;
   try {
-    const { id, expired_at, items, promo_code } = req.body;
+    const { id, expired_at, items, promo_code, form_answers } = req.body;
 
     const orderId = id || `ord_${crypto.randomUUID().replace(/-/g, '').substring(0, 8)}`;
     const now = toDbDateTime();
@@ -164,6 +170,21 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
     const discountAmount = Number(promoCtx.discountAmount || 0);
     const grandTotal = Math.max(0, Number(pricingCtx.subtotal || 0) - discountAmount);
     const normalizedItems = pricingCtx.normalizedItems;
+
+    const customFields = await getEventCustomFormFields(conn, pricingCtx.eventId);
+    if (customFields.length > 0) {
+      const normalizedAnswers = validateAndNormalizeCustomFormSubmission({
+        fields: customFields,
+        formAnswers: form_answers,
+        normalizedItems,
+      });
+
+      mergeCustomFormAnswersIntoOrderItems({
+        normalizedItems,
+        perOrderAnswers: normalizedAnswers.perOrderAnswers,
+        perTicketAnswers: normalizedAnswers.perTicketAnswers,
+      });
+    }
 
     const isFreeOrder = grandTotal === 0;
     const orderStatus = isFreeOrder ? 'PAID' : 'PENDING';
@@ -187,19 +208,15 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
         'UPDATE ticket_types SET sold = sold + ? WHERE id = ?',
         [item.quantity, item.ticketTypeId]
       );
-
-      if (isFreeOrder) {
-        const ticketId = `tkt_${crypto.randomUUID().replace(/-/g, '').substring(0, 9)}`;
-        const qrCode = `qr_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
-        await conn.query(
-          `INSERT INTO tickets (id, order_id, user_id, ticket_type_id, qr_code, status, is_used, created_at, quantity, attendee_details, order_item_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [ticketId, orderId, req.user.id, item.ticketTypeId, qrCode, 'ACTIVE', 0, now, item.quantity, item.attendeeJson, item.id]
-        );
-      }
     }
 
     if (isFreeOrder) {
+      const generated = await generateTicketsForPaidOrder(conn, {
+        orderId,
+        userId: req.user.id,
+        now,
+      });
+
       await finalizePaidOrderAccounting(
         conn,
         {
@@ -207,10 +224,7 @@ router.post('/', authenticateToken, requireVerifiedEmail, async (req, res) => {
           promo_code_id: promoCtx.promo?.id || null,
           discount_amount: discountAmount,
         },
-        normalizedItems.map((item) => ({
-          active_phase_id: item.activePhaseId,
-          quantity: item.quantity,
-        })),
+        generated.orderItems,
         req.user.id
       );
     }
